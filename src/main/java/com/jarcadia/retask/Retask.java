@@ -1,6 +1,9 @@
 package com.jarcadia.retask;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -22,7 +25,7 @@ public class Retask {
     public static Retask create(String routingKey) {
         return new Retask(UUID.randomUUID().toString(), routingKey);
     }
-    
+
     private Retask(String name, String routingKey) {
         this.name = name;
         this.metadata = new HashMap<>();
@@ -35,7 +38,7 @@ public class Retask {
     public Retask in(long duration, TimeUnit unit) {
         return at(System.currentTimeMillis() + unit.toMillis(duration));
     }
-    
+
     public Retask at(long timestamp) {
         this.scheduledTimestamp = timestamp;
         metadata.put("targetTimestamp", String.valueOf(scheduledTimestamp));
@@ -61,35 +64,66 @@ public class Retask {
         metadata.put("permitKey", permitKey);
         return this;
     }
-    
+
     public Retask param(String key, Object value) {
         params.put(key, value);
         return this;
     }
-
-    public Retask objParam(String mapKey, String id) {
-        params.put("objectMapKey", mapKey);
-        params.put("objectId", id);
-        return this;
-    }
-
+    
     public Retask objParam(RedisObject object) {
-        params.put("objectMapKey", object.getMapKey());
-        params.put("objectId", object.getId());
-        return this;
+        return this.objParam("object", object);
     }
 
-    protected Retask forInsertedObject(String id) {
-        this.params.put("objectId", id);
-        return this;
-    }
-    protected Retask forDeletedObject(String id) {
-        this.params.put("objectId", id);
-        return this;
+    public Retask objParam(String key, RedisObject object) {
+        return this.objParam(key, object.getMapKey(), object.getId());
     }
 
-    protected Retask forChangedValue(String id, RedisValue before, RedisValue after) {
-        this.params.put("objectId", id);
+    public Retask objParam(String key, String mapKey, String id) {
+        if (params.containsKey(key)) {
+            throw new RetaskException("Cannot create task with multiple default object params");
+        } else {
+            Map<String, String> obj = new HashMap<>();
+            obj.put("mapKey", mapKey);
+            obj.put("id", id);
+            params.put(key, obj);;
+            return this;
+        }
+    }
+    
+    /**
+     * Syntactic sugar for when the required return type of a handler method is a List<Retask> but
+     * only a single task needs to be returned
+     * @return
+     */
+    public List<Retask> asList() {
+        return Collections.singletonList(this);
+    }
+    
+    public List<Retask> and(Retask... tasks) {
+        List<Retask> result = new LinkedList<>();
+        result.add(this);
+        for (Retask task : tasks) {
+            result.add(task);
+        }
+        return result;
+    }
+    
+    public void addTo(List<Retask> list) {
+        list.add(this);
+    }
+
+//    protected Retask forInsertedObject(String id) {
+//        this.params.put("objectId", id);
+//        return this;
+//    }
+//
+//    protected Retask forDeletedObject(String id) {
+//        this.params.put("objectId", id);
+//        return this;
+//    }
+
+    protected Retask forChangedValue(String mapKey, String id, RedisValue before, RedisValue after) {
+        this.objParam("object", mapKey, id);
         this.metadata.put("before", before.getRawValue());
         this.metadata.put("after", after.getRawValue());
         return this;
@@ -138,5 +172,4 @@ public class Retask {
     protected boolean isTriggeredManually() {
         return this.triggerManually;
     }
-
 }

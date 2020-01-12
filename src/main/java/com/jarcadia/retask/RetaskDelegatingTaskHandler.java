@@ -24,10 +24,10 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
     private final RetaskDelegate delegate;
     private final RetaskProcrastinator procrastinator;
 
-    public RetaskDelegatingTaskHandler(RetaskDao dao, RetaskDelegate delegate, RetaskProcrastinator sleeper) {
+    public RetaskDelegatingTaskHandler(RetaskDao dao, RetaskDelegate delegate, RetaskProcrastinator procrastinator) {
         this.dao = dao;
         this.delegate = delegate;
-        this.procrastinator = sleeper;
+        this.procrastinator = procrastinator;
     }
 
     @Override
@@ -41,7 +41,7 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
         String after = metadata.get("after");
 
         String targetTimestampStr = metadata.get("targetTimestamp");
-        Long targetTimestamp = targetTimestampStr == null ? 0 : Long.parseLong(targetTimestampStr);
+        Long targetTimestamp = targetTimestampStr == null ? procrastinator.getCurrentTimeMillis() : Long.parseLong(targetTimestampStr);
 
         // In most cases, params should be cleared after execution. Exceptions can alter this value
         boolean clearParams = true;
@@ -104,7 +104,9 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
     }
 
     private void handleDelegateReturnValue(Object obj) {
-        if (obj instanceof Retask) {
+        if (obj == null) {
+            return;
+        } else if (obj instanceof Retask) {
             dao.submit((Retask) obj);
         } else if (obj instanceof Retask[]) {
             dao.submit((Retask[]) obj);

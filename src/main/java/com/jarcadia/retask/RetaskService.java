@@ -14,9 +14,18 @@ public class RetaskService {
         this.taskPopper = taskPopper;
         this.scheduledTaskPoller = scheduledTaskPoller;
     }
+    
+    public void start() {
+        this.taskPopper.start();
+        this.scheduledTaskPoller.start();
+    }
 
     public void submit(Retask... tasks) {
         dao.submit(tasks);
+    }
+    
+    public void revokeAuthority(String recurKey) {
+        dao.revokeAuthority(recurKey);
     }
 
     public void verifyPermits(String permitKey, int numPermits) {

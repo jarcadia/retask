@@ -8,6 +8,7 @@ import java.util.Set;
 
 import org.reflections.Reflections;
 
+import com.jarcadia.retask.WorkerHandlerMethod.HandlerType;
 import com.jarcadia.retask.annontations.RetaskChangeHandler;
 import com.jarcadia.retask.annontations.RetaskDeleteHandler;
 import com.jarcadia.retask.annontations.RetaskHandler;
@@ -33,27 +34,27 @@ public class RetaskRecruiter {
             for (Method method : clazz.getMethods()) {
                 RetaskHandler handlerAnnotation = method.getAnnotation(RetaskHandler.class);
                 if (handlerAnnotation != null) {
-                    recruits.computeIfAbsent(handlerAnnotation.value(), k -> new HashSet<>()).add(new WorkerHandlerMethod(clazz, method));
+                    recruits.computeIfAbsent(handlerAnnotation.value(), k -> new HashSet<>()).add(new WorkerHandlerMethod(HandlerType.Task, clazz, method));
                 }
 
                 RetaskInsertHandler insertHandlerAnnontation = method.getAnnotation(RetaskInsertHandler.class);
                 if (insertHandlerAnnontation != null) {
                     String routingKey = "insert." + insertHandlerAnnontation.value();
-                    recruits.computeIfAbsent(routingKey, k -> new HashSet<>()).add(new WorkerObjectHandlerMethod(clazz, method, insertHandlerAnnontation.value()));
+                    recruits.computeIfAbsent(routingKey, k -> new HashSet<>()).add(new WorkerHandlerMethod(HandlerType.Insert, clazz, method));
                     requestedInsertHandlers.add(insertHandlerAnnontation.value());
                 }
 
                 RetaskDeleteHandler deleteHandlerAnnontation = method.getAnnotation(RetaskDeleteHandler.class);
                 if (deleteHandlerAnnontation != null) {
                     String routingKey = "delete." + deleteHandlerAnnontation.value();
-                    recruits.computeIfAbsent(routingKey, k -> new HashSet<>()).add(new WorkerObjectHandlerMethod(clazz, method, deleteHandlerAnnontation.value()));
+                    recruits.computeIfAbsent(routingKey, k -> new HashSet<>()).add(new WorkerHandlerMethod(HandlerType.Delete, clazz, method));
                     requestedDeleteHandlers.add(deleteHandlerAnnontation.value());
                 }
 
                 RetaskChangeHandler changeHandlerAnnontation = method.getAnnotation(RetaskChangeHandler.class);
                 if (changeHandlerAnnontation != null) {
                     String routingKey = "change." + changeHandlerAnnontation.mapKey() + "." + changeHandlerAnnontation.field();
-                    recruits.computeIfAbsent(routingKey, k -> new HashSet<>()).add(new WorkerObjectHandlerMethod(clazz, method, changeHandlerAnnontation.mapKey()));
+                    recruits.computeIfAbsent(routingKey, k -> new HashSet<>()).add(new WorkerHandlerMethod(HandlerType.Change, clazz, method));
                     requestedChangeHandlers.computeIfAbsent(changeHandlerAnnontation.mapKey(), k -> new HashSet<>()).add(changeHandlerAnnontation.field());
                 }
             }

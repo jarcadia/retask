@@ -36,6 +36,9 @@ class RetaskTaskPopper implements Runnable, Closeable {
 
         this.thread = new Thread(this, "retask-popper");
         this.thread.setDaemon(true);
+    }
+
+    public void start() {
         this.thread.start();
     }
 
@@ -57,7 +60,7 @@ class RetaskTaskPopper implements Runnable, Closeable {
                             handler.handle(taskId, metadata);
                         }
                         catch (Throwable t) {
-                            logger.warn("Uncaught exception while processing task", t);
+                            logger.warn("Uncaught exception while processing task {} {}", taskId, metadata, t);
                         }
                     };
                     executor.execute(taskRunner);

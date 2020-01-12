@@ -33,7 +33,7 @@ class RetaskDao {
             } else {
                 setMetadataAndQueue(task);
             }
-            logger.trace("Queued task {} {} {}", task.getName(), task.getMetadata(), task.getParams());
+            logger.trace("Submitted task {} {} {}", task.getName(), task.getMetadata(), task.getParams());
         }
     }
     

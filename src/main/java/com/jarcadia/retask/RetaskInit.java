@@ -1,6 +1,7 @@
 package com.jarcadia.retask;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -44,7 +45,7 @@ public class RetaskInit {
                 @Override
                 public void onInsert(String mapKey, String id) {
                     String routingKey = "insert." + mapKey;
-                    Retask task = Retask.create(routingKey).forInsertedObject(id);
+                    Retask task = Retask.create(routingKey).objParam("object", mapKey, id);
                     dao.submit(task);
                 }
             };
@@ -59,7 +60,7 @@ public class RetaskInit {
                 @Override
                 public void onDelete(String mapKey, String id) {
                     String routingKey = "delete." + mapKey;
-                    Retask task = Retask.create(routingKey).forDeletedObject(id);
+                    Retask task = Retask.create(routingKey).objParam("object", mapKey, id);
                     dao.submit(task);
                 }
             };
@@ -75,7 +76,7 @@ public class RetaskInit {
                     @Override
                     public void onChange(String mapKey, String id, long version, String field, RedisValue before, RedisValue after) {
                         String routingKey = "change." + mapKey + "." + field;
-                        Retask task = Retask.create(routingKey).forChangedValue(id, before, after);
+                        Retask task = Retask.create(routingKey).forChangedValue(mapKey, id, before, after);
                         dao.submit(task);
 //                        logger.info("Dispatched change task {}: {}.{}.{}: {} -> {}", task.getName(), mapKey, id, field, before.getRawValue(), after.getRawValue());
                     }
@@ -85,7 +86,7 @@ public class RetaskInit {
         }
 
         // Build delegates for each discovered route/method
-        Map<String, RetaskDelegate> routeToDelegateMap = buildTaskDelegatesForRoutes(rcommando, objectMapper, instanceProvider, routes);
+        Map<String, RetaskDelegate> routeToDelegateMap = buildTaskDelegatesForRoutes(rcommando, objectMapper, executor, instanceProvider, routes);
 
         // Create a routing delegator for the route > delegate map
         RetaskDelegate router = new RetaskDelegateRouter(routeToDelegateMap);
@@ -108,25 +109,25 @@ public class RetaskInit {
         return retaskService;
     }
 
-    private static Map<String, RetaskDelegate> buildTaskDelegatesForRoutes(RedisCommando rcommando, ObjectMapper objectMapper,
+    private static Map<String, RetaskDelegate> buildTaskDelegatesForRoutes(RedisCommando rcommando, ObjectMapper objectMapper, ExecutorService executor,
             RetaskWorkerInstanceProvider instanceProvider, Map<String, Set<WorkerHandlerMethod>> routes) {
         Map<String, RetaskDelegate> routeToDelegateMap = new HashMap<>();
         for (String routingKey : routes.keySet()) {
             Set<WorkerHandlerMethod> workerMethods = routes.get(routingKey);
-            routeToDelegateMap.put(routingKey, createDelegateForRoute(rcommando, objectMapper, instanceProvider, workerMethods));
+            routeToDelegateMap.put(routingKey, createDelegateForRoute(rcommando, objectMapper, executor, instanceProvider, workerMethods));
         }
         return Collections.unmodifiableMap(routeToDelegateMap);
     }
 
-    private static RetaskDelegate createDelegateForRoute(RedisCommando rcommando, ObjectMapper objectMapper, RetaskWorkerInstanceProvider provider, Set<WorkerHandlerMethod> workerMethods) {
+    private static RetaskDelegate createDelegateForRoute(RedisCommando rcommando, ObjectMapper objectMapper, ExecutorService executor, RetaskWorkerInstanceProvider provider, Set<WorkerHandlerMethod> workerMethods) {
         if (workerMethods.size() == 1) {
             return createReflectiveTaskDelegate(rcommando, objectMapper, provider, workerMethods.iterator().next());
         } else {
-            return createDuplicateRoutingKeyDelegate(rcommando, objectMapper, provider, workerMethods);
+            return createDuplicateRoutingKeyDelegate(rcommando, objectMapper, executor, provider, workerMethods);
         }
     }
     
-    private static RetaskDelegate createDuplicateRoutingKeyDelegate(RedisCommando rcommando, ObjectMapper objectMapper, RetaskWorkerInstanceProvider provider, Set<WorkerHandlerMethod> workerMethods) {
+    private static RetaskDelegate createDuplicateRoutingKeyDelegate(RedisCommando rcommando, ObjectMapper objectMapper, ExecutorService executor, RetaskWorkerInstanceProvider provider, Set<WorkerHandlerMethod> workerMethods) {
         Set<RetaskDelegate> delegates = new HashSet<>();
         for (WorkerHandlerMethod workerMethod : workerMethods) {
             delegates.add(createReflectiveTaskDelegate(rcommando, objectMapper, provider, workerMethod));
@@ -137,11 +138,23 @@ public class RetaskInit {
     private static RetaskDelegate createReflectiveTaskDelegate(RedisCommando rcommando, ObjectMapper objectMapper, RetaskWorkerInstanceProvider provider, WorkerHandlerMethod workerMethod) {
         Class<?> clazz = workerMethod.getWorkerClass();
         Method method = workerMethod.getMethod();
-        if (workerMethod instanceof WorkerObjectHandlerMethod) {
-            WorkerObjectHandlerMethod objectHandlerMethod = (WorkerObjectHandlerMethod) workerMethod;
-            return RetaskReflectiveTaskDelegate.createObjectHandlerDelegate(rcommando, objectMapper, provider, clazz, method, objectHandlerMethod.getMapKey());
-        } else {
-            return RetaskReflectiveTaskDelegate.createHandlerDelegate(rcommando, objectMapper, provider, clazz, method);
+        
+        MethodParamsProducer paramsProducer = createMethodParamsProducer(rcommando, objectMapper, workerMethod);
+        return new RetaskReflectiveTaskDelegate(provider, clazz, method, paramsProducer);
+    }
+    
+    private static MethodParamsProducer createMethodParamsProducer(RedisCommando rcommando, ObjectMapper objectMapper, WorkerHandlerMethod handlerMethod) {
+        Parameter[] parameters = handlerMethod.getMethod().getParameters();
+        switch (handlerMethod.getType()) {
+            case Task:
+                return new MethodParamsProducerForTaskHandler(rcommando, objectMapper, parameters);
+            case Change:
+                return new MethodParamsProducerForChangeHandler(rcommando, objectMapper, parameters);
+            case Insert:
+            case Delete:
+                return new MethodParamsProducerForInsertOrDeleteHandler(rcommando, objectMapper, parameters);
+            default:
+                throw new RuntimeException("Unable to produce parameters for " + handlerMethod.getType());
         }
     }
 }

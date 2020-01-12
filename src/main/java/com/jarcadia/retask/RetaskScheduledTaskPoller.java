@@ -24,7 +24,10 @@ class RetaskScheduledTaskPoller implements Runnable, Closeable {
         this.procrastinator = procrastinator;
         this.closedFuture = new CompletableFuture<>();
         this.thread = new Thread(this, "retask-scheduled-poller");
-        thread.start();
+    }
+    
+    public void start() {
+        this.thread.start();
     }
 
     @Override

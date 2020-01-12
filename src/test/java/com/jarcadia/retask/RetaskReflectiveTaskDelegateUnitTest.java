@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jarcadia.rcommando.RedisCommando;
 import com.jarcadia.rcommando.RedisMap;
@@ -30,7 +31,8 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodWithoutParametersCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithoutParameters");
-        RetaskReflectiveTaskDelegate delegate = RetaskReflectiveTaskDelegate.createHandlerDelegate(rcommando, objectMapper, c -> this, this.getClass(), method);
+        MethodParamsProducer paramsProducer = new MethodParamsProducerForTaskHandler(rcommando, objectMapper, method.getParameters());
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
         Object returnValue = delegate.invoke("taskName", "routingKey", 1, 1, null, null, "{}");
         Assertions.assertNull(returnValue);
     }
@@ -45,34 +47,66 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodWithParamsThatHaveReservedNamedCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithParamsThatHaveReservedNames", String.class, String.class, int.class, int.class);
-        RetaskReflectiveTaskDelegate delegate = RetaskReflectiveTaskDelegate.createHandlerDelegate(rcommando, objectMapper, c -> this, this.getClass(), method);
+        MethodParamsProducer paramsProducer = new MethodParamsProducerForTaskHandler(rcommando, objectMapper, method.getParameters());
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
         Object returnValue = delegate.invoke("taskId", "routingKey", 2, 5, null, null, "{}");
         Assertions.assertNull(returnValue);
     }
 
-    public void methodWithRedisMapParameters(@RetaskParam("cars") RedisMap carsMap, RedisMap books) {
-        Assertions.assertEquals(carsMap.size(), 5);
-        Assertions.assertEquals(books.size(), 10);
+    public void methodWithSingleDefaultRedisObject(RedisObject specific, int count) {
+        Assertions.assertNotNull(specific);
+        Assertions.assertEquals("objs", specific.getMapKey());
+        Assertions.assertEquals("abc123", specific.getId());
+        Assertions.assertEquals(100, count);
     }
 
     @Test
-    void delegatesToMethodWithRedisMapParametersCorrectly() throws Throwable {
-        // Setup mocks
-        RedisMap carsMapMock = Mockito.mock(RedisMap.class);
-        Mockito.when(carsMapMock.size()).thenReturn(5L);
+    void delegateToMethodWithSingleDefaultRedisObjectProperly() throws Throwable {
+        RedisObject objMock = Mockito.mock(RedisObject.class);
+        Mockito.when(objMock.getMapKey()).thenReturn("objs");
+        Mockito.when(objMock.getId()).thenReturn("abc123");
 
-        RedisMap booksMapMock = Mockito.mock(RedisMap.class);
-        Mockito.when(booksMapMock.size()).thenReturn(10L);
+        RedisMap mapMock = Mockito.mock(RedisMap.class);
+        Mockito.when(mapMock.get("abc123")).thenReturn(objMock);
 
         RedisCommando rcommando = Mockito.mock(RedisCommando.class);
-        Mockito.when(rcommando.getMap("cars")).thenReturn(carsMapMock);
-        Mockito.when(rcommando.getMap("books")).thenReturn(booksMapMock);
-
-        Method method = this.getClass().getMethod("methodWithRedisMapParameters", RedisMap.class, RedisMap.class);
-        RetaskReflectiveTaskDelegate delegate = RetaskReflectiveTaskDelegate.createHandlerDelegate(rcommando, objectMapper, c -> this, this.getClass(), method);
-        Object returnValue = delegate.invoke("taskId", "routingKey", 1, -1, null, null, "{}");
-        Assertions.assertNull(returnValue);
+        Mockito.when(rcommando.getMap("objs")).thenReturn(mapMock);
+        
+        Method method = this.getClass().getMethod("methodWithSingleDefaultRedisObject", RedisObject.class, int.class);
+        MethodParamsProducer paramsProducer = new MethodParamsProducerForTaskHandler(rcommando, objectMapper, method.getParameters());
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("count", 100);
+        params.put("object", obj("objs", "abc123"));
+        
+        delegate.invoke("taskName", "routingKey", 1, 1, null, null, objectMapper.writeValueAsString(params));
     }
+    
+//    public void methodWithRedisMapParameters(@RetaskParam("cars") RedisMap carsMap, RedisMap books) {
+//        Assertions.assertEquals(carsMap.size(), 5);
+//        Assertions.assertEquals(books.size(), 10);
+//    }
+//
+//    @Test
+//    void delegatesToMethodWithRedisMapParametersCorrectly() throws Throwable {
+//        // Setup mocks
+//        RedisMap carsMapMock = Mockito.mock(RedisMap.class);
+//        Mockito.when(carsMapMock.size()).thenReturn(5L);
+//
+//        RedisMap booksMapMock = Mockito.mock(RedisMap.class);
+//        Mockito.when(booksMapMock.size()).thenReturn(10L);
+//
+//        RedisCommando rcommando = Mockito.mock(RedisCommando.class);
+//        Mockito.when(rcommando.getMap("cars")).thenReturn(carsMapMock);
+//        Mockito.when(rcommando.getMap("books")).thenReturn(booksMapMock);
+//
+//        Method method = this.getClass().getMethod("methodWithRedisMapParameters", RedisMap.class, RedisMap.class);
+//        MethodParamsProducer paramsProducer = new MethodParamsProducerForTaskHandler(rcommando, objectMapper, method.getParameters());
+//        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+//        Object returnValue = delegate.invoke("taskId", "routingKey", 1, -1, null, null, "{}");
+//        Assertions.assertNull(returnValue);
+//    }
 
     public void methodWithJsonParameters(String str, int number, List<String> strList, Set<Number> numSet, TestPojo pojo) {
         Assertions.assertEquals("hello", str);
@@ -89,7 +123,8 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodWithJsonParametersCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithJsonParameters", String.class, int.class, List.class, Set.class, TestPojo.class);
-        RetaskReflectiveTaskDelegate delegate = RetaskReflectiveTaskDelegate.createHandlerDelegate(rcommando, objectMapper, c -> this, this.getClass(), method);
+        MethodParamsProducer paramsProducer = new MethodParamsProducerForTaskHandler(rcommando, objectMapper, method.getParameters());
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
         
         Map<String, Object> values = new HashMap<>();
         values.put("str", "hello");
@@ -113,14 +148,15 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodAndReceivesReturnValueCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithReturnValue");
-        RetaskReflectiveTaskDelegate delegate = RetaskReflectiveTaskDelegate.createHandlerDelegate(rcommando, objectMapper, c -> this, this.getClass(), method);
+        MethodParamsProducer paramsProducer = new MethodParamsProducerForTaskHandler(rcommando, objectMapper, method.getParameters());
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
         Object returnValue = delegate.invoke("taskName", "routingKey", 1, 1, null, null, "{}");
         Assertions.assertEquals("hello", returnValue);
     }
 
-    public void changeHandlerMethod(RedisObject object, String before, @RetaskParam("after") TestPojo pojo) {
-        Assertions.assertEquals("objs", object.getMapKey());
-        Assertions.assertEquals("abc123", object.getId());
+    public void changeHandlerMethod(RedisObject obj, String before, @RetaskParam("after") TestPojo pojo) {
+        Assertions.assertEquals("objs", obj.getMapKey());
+        Assertions.assertEquals("abc123", obj.getId());
         Assertions.assertEquals("hello", before);
         Assertions.assertEquals("John Doe", pojo.getName());
         Assertions.assertEquals(33, pojo.getAge());
@@ -143,8 +179,17 @@ public class RetaskReflectiveTaskDelegateUnitTest {
         Mockito.when(rcommando.getMap("objs")).thenReturn(mapMock);
 
         Method method = this.getClass().getMethod("changeHandlerMethod", RedisObject.class, String.class, TestPojo.class);
-        RetaskReflectiveTaskDelegate delegate = RetaskReflectiveTaskDelegate.createObjectHandlerDelegate(rcommando, objectMapper, c -> this, this.getClass(), method, "objs");
+        MethodParamsProducer paramsProducer = new MethodParamsProducerForChangeHandler(rcommando, objectMapper, method.getParameters());
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        
         delegate.invoke("taskName", "routingKey", 1, 1, objectMapper.writeValueAsString("hello"),
-                objectMapper.writeValueAsString(pojo), objectMapper.writeValueAsString(Collections.singletonMap("objectId", "abc123")));
+                objectMapper.writeValueAsString(pojo), objectMapper.writeValueAsString(Collections.singletonMap("object", obj("objs", "abc123"))));
+    }
+    
+    private Map<String, String> obj(String mapKey, String id) throws JsonProcessingException {
+        Map<String, String> map = new HashMap<>();
+        map.put("mapKey", mapKey);
+        map.put("id", id);
+        return map;
     }
 }
