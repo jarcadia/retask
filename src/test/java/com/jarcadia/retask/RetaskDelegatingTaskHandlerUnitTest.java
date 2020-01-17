@@ -32,11 +32,15 @@ public class RetaskDelegatingTaskHandlerUnitTest {
             return returnValue;
         };
     }
-    
+
     private RetaskDelegatingTaskHandler createHandler(RetaskDao helper, RetaskDelegate delegate) {
         return new RetaskDelegatingTaskHandler(helper, delegate, new RetaskProcrastinator());
     }
-    
+
+    private RetaskDelegatingTaskHandler createHandler(RetaskDao helper, RetaskDelegate delegate, RetaskProcrastinator procrastinator) {
+        return new RetaskDelegatingTaskHandler(helper, delegate, procrastinator);
+    }
+
     private void assertDelegateInvoked() {
         Assertions.assertTrue(executed.get(), "Task was executed");
     }
@@ -108,18 +112,26 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         String generatedAuthKey = task.getAuthorityKey();
 
         RetaskDao helper = Mockito.mock(RetaskDao.class);
-        Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 0, 1000L)).thenReturn(true);
+        Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 500L, 1000L)).thenReturn(true);
 
-        // Invoke the task
-        RetaskDelegatingTaskHandler handler = createHandler(helper, delegate);
-        handler.handle("abc", task.getMetadata());
+        RetaskProcrastinator procrastinator = Mockito.mock(RetaskProcrastinator.class);
+        Mockito.when(procrastinator.getCurrentTimeMillis()).thenReturn(500L);
+
+        // Add additional metadata (automatically done by Lua script)
+        Map<String, String> metadata = task.getMetadata();
+        metadata.put("recurKey", task.getRecurKey());
+        metadata.put("authorityKey", task.getAuthorityKey());
         
+        // Invoke the task
+        RetaskDelegatingTaskHandler handler = createHandler(helper, delegate, procrastinator);
+        handler.handle("abc", metadata);
+
         assertDelegateInvoked();
-        Mockito.verify(helper, Mockito.times(1)).recur("test-recur", "abc", generatedAuthKey, 0, 1000L);
+        Mockito.verify(helper, Mockito.times(1)).recur("test-recur", "abc", generatedAuthKey, 500, 1000L);
         Mockito.verify(helper, Mockito.times(1)).clearParams("abc");
         Mockito.verifyNoMoreInteractions(helper);
     }
-    
+
     @Test
     void doesNotRecurWhenLackingAuthority() throws Throwable {
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, null);
@@ -130,11 +142,19 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         RetaskDao helper = Mockito.mock(RetaskDao.class);
         Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 0, 1000L)).thenReturn(false);
 
+        RetaskProcrastinator procrastinator = Mockito.mock(RetaskProcrastinator.class);
+        Mockito.when(procrastinator.getCurrentTimeMillis()).thenReturn(500L);
+        
+        // Add additional metadata (automatically done by Lua script)
+        Map<String, String> metadata = task.getMetadata();
+        metadata.put("recurKey", task.getRecurKey());
+        metadata.put("authorityKey", task.getAuthorityKey());
+
         // Invoke the task
-        createHandler(helper, delegate).handle("abc", task.getMetadata());
+        createHandler(helper, delegate, procrastinator).handle("abc", metadata);
         
         assertDelegateNotInvoked();
-        Mockito.verify(helper, Mockito.times(1)).recur("test-recur", "abc", generatedAuthKey, 0, 1000L);
+        Mockito.verify(helper, Mockito.times(1)).recur("test-recur", "abc", generatedAuthKey, 500L, 1000L);
         Mockito.verifyNoMoreInteractions(helper);
     }
     
@@ -162,14 +182,14 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     void doesNotRunWhenAPermitIsUnavailable() throws Throwable {
         RetaskDelegate wrapper = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, null);
         Retask task = Retask.create("routingKey").permit("permitKey");
-        
+
         // Create mocked helper to reject permit
         RetaskDao helper = Mockito.mock(RetaskDao.class);
         Mockito.when(helper.acquirePermitOrBacklog("abc", "permitKey")).thenReturn(Optional.empty());
 
         // Invoke the task
         createHandler(helper, wrapper).handle("abc", task.getMetadata());
-        
+
         // Assertions
         assertDelegateNotInvoked();
         Mockito.verify(helper, Mockito.times(1)).acquirePermitOrBacklog("abc", "permitKey");
@@ -241,18 +261,20 @@ public class RetaskDelegatingTaskHandlerUnitTest {
 
         // Mock Sleeper
         RetaskProcrastinator procrastinator = Mockito.mock(RetaskProcrastinator.class);
+        
+        // Add additional metadata (automatically done by Lua script)
+        Map<String, String> metadata = task.getMetadata();
+        metadata.put("targetTimestamp", String.valueOf(targetTimestamp));
 
         // Invoke the task
         RetaskDelegatingTaskHandler handler = new RetaskDelegatingTaskHandler(helper, delegate, procrastinator);
-        handler.handle("abc", task.getMetadata());
+        handler.handle("abc", metadata);
         
         // Assertions
         assertDelegateInvoked();
         Mockito.verify(procrastinator, Mockito.times(1)).sleepUntil(targetTimestamp);
         Mockito.verify(helper, Mockito.times(1)).clearParams("abc");
-        Mockito.verify(helper, Mockito.times(1)).clearParams("abc");
         Mockito.verify(helper, Mockito.times(1)).submit(returnedTask);
         Mockito.verifyNoMoreInteractions(helper);
     }
-    
 }

@@ -7,10 +7,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jarcadia.rcommando.RedisCommando;
-import com.jarcadia.rcommando.RedisMap;
 import com.jarcadia.rcommando.RedisObject;
 import com.jarcadia.retask.annontations.RetaskParam;
 
@@ -38,28 +34,6 @@ abstract class MethodParamsProducer {
         }
         return -1;
     }
-
-//    protected ChangedValueParam discoverChangedValueParamIndex(Parameter[] parameters, String name) {
-//        for (int i=0; i<parameters.length; i++) {
-//            if (matches(parameters[i], name)) {
-//                return new ChangedValueParam(i, parameters[i].getType());
-//            }
-//        }
-//        return null;
-//    }
-
-    protected Map<Integer, RedisMap> discoverRedisMapParameterIndexes(Parameter[] parameters) {
-        Map<Integer, RedisMap> result = new HashMap<>();
-        for (int i=0; i<parameters.length; i++) {
-            if (RedisMap.class.equals(parameters[i].getType())) {
-                RetaskParam annontation = parameters[i].getAnnotation(RetaskParam.class);
-                String mapKey = annontation == null ? parameters[i].getName() : annontation.value();
-//                result.put(i, rcommando.getMap(mapKey));
-            }
-        }
-        return Collections.unmodifiableMap(result);
-    }
-
     protected boolean matches(Parameter parameter, String name) {
         if (name.equals(parameter.getName())) {
             return true;

@@ -13,12 +13,11 @@ import com.jarcadia.rcommando.RedisValue;
 
 public class Retask {
 
-    private final String name;
-    private Long scheduledTimestamp;
+    private final String id;
+    private Long targetTimestamp;
     private String recurKey;
     private String authorityKey;
     private Long recurInterval;
-    private boolean triggerManually;
     private final Map<String, String> metadata;
     private final Map<String, Object> params;
 
@@ -26,8 +25,8 @@ public class Retask {
         return new Retask(UUID.randomUUID().toString(), routingKey);
     }
 
-    private Retask(String name, String routingKey) {
-        this.name = name;
+    private Retask(String id, String routingKey) {
+        this.id = id;
         this.metadata = new HashMap<>();
         if (routingKey != null) {
             metadata.put("routingKey", routingKey);
@@ -40,13 +39,7 @@ public class Retask {
     }
 
     public Retask at(long timestamp) {
-        this.scheduledTimestamp = timestamp;
-        metadata.put("targetTimestamp", String.valueOf(scheduledTimestamp));
-        return this;
-    }
-
-    public Retask triggerManually() {
-        this.triggerManually = true;
+        this.targetTimestamp = timestamp;
         return this;
     }
 
@@ -54,8 +47,6 @@ public class Retask {
         this.recurKey = recurKey;
         this.recurInterval = unit.toMillis(interval);
         this.authorityKey = UUID.randomUUID().toString();
-        metadata.put("recurKey", recurKey);
-        metadata.put("authorityKey", authorityKey);
         metadata.put("recurInterval", String.valueOf(recurInterval));
         return this;
     }
@@ -74,21 +65,26 @@ public class Retask {
         return this.objParam("object", object);
     }
 
-    public Retask objParam(String key, RedisObject object) {
-        return this.objParam(key, object.getMapKey(), object.getId());
+    public Retask objParam(String mapKey, String id) {
+        return this.objParam("object", mapKey, id);
     }
 
-    public Retask objParam(String key, String mapKey, String id) {
-        if (params.containsKey(key)) {
+    public Retask objParam(String name, RedisObject object) {
+        return this.objParam(name, object.getMapKey(), object.getId());
+    }
+
+    public Retask objParam(String name, String mapKey, String id) {
+        if (params.containsKey(name)) {
             throw new RetaskException("Cannot create task with multiple default object params");
         } else {
             Map<String, String> obj = new HashMap<>();
             obj.put("mapKey", mapKey);
             obj.put("id", id);
-            params.put(key, obj);;
+            params.put(name, obj);;
             return this;
         }
     }
+    
     
     /**
      * Syntactic sugar for when the required return type of a handler method is a List<Retask> but
@@ -112,16 +108,6 @@ public class Retask {
         list.add(this);
     }
 
-//    protected Retask forInsertedObject(String id) {
-//        this.params.put("objectId", id);
-//        return this;
-//    }
-//
-//    protected Retask forDeletedObject(String id) {
-//        this.params.put("objectId", id);
-//        return this;
-//    }
-
     protected Retask forChangedValue(String mapKey, String id, RedisValue before, RedisValue after) {
         this.objParam("object", mapKey, id);
         this.metadata.put("before", before.getRawValue());
@@ -129,20 +115,20 @@ public class Retask {
         return this;
     }
 
-    protected String getName() {
-        return this.name;
+    protected String getId() {
+        return this.id;
     } 
 
     protected boolean isScheduled() {
-        return scheduledTimestamp != null;
+        return targetTimestamp != null;
     }
-
-    protected long getScheduledTimestamp() {
-        return scheduledTimestamp;
+    
+    protected long getTargetTimestamp() {
+        return targetTimestamp;
     }
 
     protected boolean isRecurring() {
-        return recurInterval != null;
+        return recurKey != null;
     }
 
     protected String getRecurKey() {
@@ -151,10 +137,6 @@ public class Retask {
 
     protected String getAuthorityKey() {
         return authorityKey;
-    }
-
-    protected long getRecurInterval() {
-        return recurInterval;
     }
 
     protected Map<String, String> getMetadata() {
@@ -169,7 +151,4 @@ public class Retask {
         return this.params;
     }
 
-    protected boolean isTriggeredManually() {
-        return this.triggerManually;
-    }
 }

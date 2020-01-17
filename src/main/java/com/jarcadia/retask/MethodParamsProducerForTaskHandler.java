@@ -2,6 +2,8 @@ package com.jarcadia.retask;
 
 import java.io.IOException;
 import java.lang.reflect.Parameter;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -12,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jarcadia.rcommando.RedisCommando;
 import com.jarcadia.rcommando.RedisMap;
 import com.jarcadia.rcommando.RedisObject;
+import com.jarcadia.retask.annontations.RetaskParam;
 
 class MethodParamsProducerForTaskHandler extends MethodParamsProducer {
     
@@ -84,6 +87,18 @@ class MethodParamsProducerForTaskHandler extends MethodParamsProducer {
                 }
             }
         }
+    }
+
+    private Map<Integer, RedisMap> discoverRedisMapParameterIndexes(Parameter[] parameters) {
+        Map<Integer, RedisMap> result = new HashMap<>();
+        for (int i=0; i<parameters.length; i++) {
+            if (RedisMap.class.equals(parameters[i].getType())) {
+                RetaskParam annontation = parameters[i].getAnnotation(RetaskParam.class);
+                String mapKey = annontation == null ? parameters[i].getName() : annontation.value();
+                result.put(i, rcommando.getMap(mapKey));
+            }
+        }
+        return Collections.unmodifiableMap(result);
     }
 
     private RedisObject produceRedisObject(JsonNode root, String paramName) {

@@ -32,13 +32,14 @@ public class RetaskPopperUnitTest {
     
     @Mock
     RetaskTaskPopperDao dao;
-    
+
     @Mock
     RetaskProcrastinator procrastinator;
     
     @Test
     void taskPopperStartsAndStops() throws TimeoutException {
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
+        taskPopper.start();
         taskPopper.close();
         taskPopper.join(100, TimeUnit.MILLISECONDS);
     }
@@ -46,6 +47,7 @@ public class RetaskPopperUnitTest {
     @Test
     void taskPopperStopsCorrectlyWhenJoiningThreadIsInterrupted() throws TimeoutException {
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
+        taskPopper.start();
         taskPopper.close();
         Thread.currentThread().interrupt();
         taskPopper.join(1000, TimeUnit.MILLISECONDS);
@@ -54,22 +56,25 @@ public class RetaskPopperUnitTest {
     @Test
     void taskPopperStopsCorrectlyWhenInterruptedWhileAwaitingPop() throws TimeoutException {
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
+        taskPopper.start();
         Mockito.when(dao.popTask()).thenThrow(new RedisCommandInterruptedException(new InterruptedException()));
         taskPopper.join(1000, TimeUnit.MILLISECONDS);
     }
     
     @Test
     void taskPopperStopsCorrectlyWhenInterruptedWhileAwaitingExceptionHandlingDelay() throws TimeoutException, InterruptedException {
+        RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
         Mockito.when(dao.popTask()).thenThrow(new RedisException("Generally failed to pop task"));
         doThrow(new InterruptedException()).when(procrastinator).sleepFor(1000L);
-        RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
+        taskPopper.start();
         taskPopper.join(1000, TimeUnit.MILLISECONDS);
     }
 
     @Test
     void taskPopperContinuesAfterDelayIfItEncountersAnUnexpectedException() throws TimeoutException, InterruptedException, ExecutionException {
-        Mockito.when(dao.popTask()).thenThrow(new RedisException("Generally failed to pop task"));
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
+        Mockito.when(dao.popTask()).thenThrow(new RedisException("Generally failed to pop task"));
+        taskPopper.start();
         Mockito.verify(dao, Mockito.timeout(Duration.ofMillis(100)).atLeastOnce()).popTask();
         Mockito.verify(procrastinator, Mockito.atLeastOnce()).sleepFor(1000L);
         taskPopper.close();
@@ -79,6 +84,7 @@ public class RetaskPopperUnitTest {
     @Test
     void taskPopperContinuesIfNoTasksAreAvailable() throws TimeoutException, InterruptedException {
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
+        taskPopper.start();
         Mockito.verify(dao, Mockito.timeout(Duration.ofMillis(100)).atLeastOnce()).popTask();
         taskPopper.close();
         taskPopper.join(100, TimeUnit.MILLISECONDS);
@@ -105,6 +111,7 @@ public class RetaskPopperUnitTest {
 
         // Setup TaskPopper for test
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, handler, procrastinator);
+        taskPopper.start();
 
         // Assert values were passed into handler
         Assertions.assertEquals(task, taskFuture.get(100, TimeUnit.MILLISECONDS));
@@ -137,6 +144,7 @@ public class RetaskPopperUnitTest {
 
         // Setup TaskPopper for test
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, handler, procrastinator);
+        taskPopper.start();
 
         Assertions.assertEquals(task, taskFuture.get(100, TimeUnit.MILLISECONDS));
         Assertions.assertIterableEquals(metadata.entrySet(), metadataFuture.get().entrySet());

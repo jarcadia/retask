@@ -15,13 +15,11 @@ class RetaskReflectiveTaskDelegate implements RetaskDelegate {
     private final RetaskWorkerInstanceProvider provider;
     private final Class<?> targetClass;
     private volatile Object targetInstance;
-    private volatile boolean targetUnavailable;
 
     protected RetaskReflectiveTaskDelegate(RetaskWorkerInstanceProvider provider, Class<?> targetClass, Method targetMethod, MethodParamsProducer paramsProducer) {
         this.provider = provider;
         this.targetClass = targetClass;
         this.targetMethod = targetMethod;
-        this.targetUnavailable = false;
         this.paramsProducer = paramsProducer;
     }
 
@@ -30,13 +28,10 @@ class RetaskReflectiveTaskDelegate implements RetaskDelegate {
         synchronized (this) {
             if (targetInstance == null) {
                 targetInstance = provider.getInstance(targetClass);
-                if (targetInstance == null || !targetClass.equals(targetInstance.getClass())) {
-                    targetUnavailable = true;
-                }
+                if (targetInstance == null) {
+                    throw new RetaskException("No instance of worker (type " + targetClass.getName() + ") provided");
+                } 
             }
-        }
-        if (targetUnavailable) {
-            throw new RetaskException("No instance of worker (type " + targetClass.getName() + ") provided");
         }
         try {
             Object[] methodParameters = paramsProducer.produceParameters(taskId, routingKey, attempt, permit, before, after, params);

@@ -4,7 +4,8 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -105,7 +106,7 @@ public class RetaskInit {
         RetaskScheduledTaskPoller scheduledTaskPoller = new RetaskScheduledTaskPoller(dao, procrastinator);
 
         // Create instance of RetaskService (exposes public API for Retask)
-        RetaskService retaskService = new RetaskService(dao, taskPopper, scheduledTaskPoller);
+        RetaskService retaskService = new RetaskService(dao, taskPopper, scheduledTaskPoller, recruiter);
         return retaskService;
     }
 
@@ -123,16 +124,16 @@ public class RetaskInit {
         if (workerMethods.size() == 1) {
             return createReflectiveTaskDelegate(rcommando, objectMapper, provider, workerMethods.iterator().next());
         } else {
-            return createDuplicateRoutingKeyDelegate(rcommando, objectMapper, executor, provider, workerMethods);
+            return createRouteSplittingDelegate(rcommando, objectMapper, executor, provider, workerMethods);
         }
     }
     
-    private static RetaskDelegate createDuplicateRoutingKeyDelegate(RedisCommando rcommando, ObjectMapper objectMapper, ExecutorService executor, RetaskWorkerInstanceProvider provider, Set<WorkerHandlerMethod> workerMethods) {
-        Set<RetaskDelegate> delegates = new HashSet<>();
+    private static RetaskDelegate createRouteSplittingDelegate(RedisCommando rcommando, ObjectMapper objectMapper, ExecutorService executor, RetaskWorkerInstanceProvider provider, Set<WorkerHandlerMethod> workerMethods) {
+        List<RetaskDelegate> delegates = new LinkedList<>();
         for (WorkerHandlerMethod workerMethod : workerMethods) {
             delegates.add(createReflectiveTaskDelegate(rcommando, objectMapper, provider, workerMethod));
         }
-        return new RetaskDuplicateRoutingKeyDelegate(delegates.toArray(new RetaskDelegate[0]));
+        return new RouteSplittingDelegate(executor, delegates);
     }
     
     private static RetaskDelegate createReflectiveTaskDelegate(RedisCommando rcommando, ObjectMapper objectMapper, RetaskWorkerInstanceProvider provider, WorkerHandlerMethod workerMethod) {

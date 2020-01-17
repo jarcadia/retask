@@ -1,10 +1,14 @@
 package com.jarcadia.retask;
 
 import java.lang.reflect.Method;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import org.reflections.Reflections;
 
@@ -23,7 +27,7 @@ public class RetaskRecruiter {
     private final Map<String, Set<String>> requestedChangeHandlers;
     
     public RetaskRecruiter() {
-        this.recruits = new HashMap<>();
+        this.recruits = new ConcurrentHashMap<>();
         this.requestedInsertHandlers = new HashSet<>();
         this.requestedDeleteHandlers = new HashSet<>();
         this.requestedChangeHandlers = new HashMap<>();
@@ -70,6 +74,12 @@ public class RetaskRecruiter {
 
     protected Map<String, Set<WorkerHandlerMethod>> getRecruits() {
         return this.recruits;
+    }
+
+    protected Set<String> verifyRoutes(Collection<String> requestedRoutes) {
+        return requestedRoutes.stream()
+                .filter(r -> !recruits.containsKey(r))
+                .collect(Collectors.toSet());
     }
 
     protected Set<String> getInsertHandlerKeys() {

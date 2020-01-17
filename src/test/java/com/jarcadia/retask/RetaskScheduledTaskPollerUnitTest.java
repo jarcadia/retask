@@ -28,6 +28,7 @@ public class RetaskScheduledTaskPollerUnitTest {
     @Test
     void startsAndStopsCorrectly() throws TimeoutException {
         RetaskScheduledTaskPoller poller = new RetaskScheduledTaskPoller(dao, procrastinator);
+        poller.start();
         Mockito.verify(dao, Mockito.timeout(Duration.ofMillis(100)).atLeastOnce()).pollForScheduledTasks(ArgumentMatchers.anyLong());
         poller.close();
         poller.join(100, TimeUnit.MILLISECONDS);
@@ -36,6 +37,7 @@ public class RetaskScheduledTaskPollerUnitTest {
     @Test
     void queuesTasksThatAreReady() throws TimeoutException {
         RetaskScheduledTaskPoller poller = new RetaskScheduledTaskPoller(dao, procrastinator);
+        poller.start();
         List<String> readyTasks = Arrays.asList("task1", "task2");
         Mockito.when(dao.pollForScheduledTasks(ArgumentMatchers.anyLong())).thenReturn(readyTasks).thenReturn(Collections.emptyList());
         Mockito.verify(dao, Mockito.timeout(Duration.ofMillis(100)).times(1)).queueTaskIds(readyTasks);
@@ -51,6 +53,7 @@ public class RetaskScheduledTaskPollerUnitTest {
 
         // Start the poller
         RetaskScheduledTaskPoller poller = new RetaskScheduledTaskPoller(dao, procrastinator);
+        poller.start();
 
         // Join without closing, the interrupted exception should have exited the polling thread
         poller.join(1000, TimeUnit.MILLISECONDS);

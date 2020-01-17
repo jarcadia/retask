@@ -1,5 +1,7 @@
 package com.jarcadia.retask;
 
+import java.util.Collection;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -8,11 +10,13 @@ public class RetaskService {
     private final RetaskDao dao;
     private final RetaskTaskPopper taskPopper;
     private final RetaskScheduledTaskPoller scheduledTaskPoller;
+    private final RetaskRecruiter recruiter;
 
-    public RetaskService(RetaskDao dao, RetaskTaskPopper taskPopper, RetaskScheduledTaskPoller scheduledTaskPoller) {
+    public RetaskService(RetaskDao dao, RetaskTaskPopper taskPopper, RetaskScheduledTaskPoller scheduledTaskPoller, RetaskRecruiter recruiter) {
         this.dao = dao;
         this.taskPopper = taskPopper;
         this.scheduledTaskPoller = scheduledTaskPoller;
+        this.recruiter = recruiter;
     }
     
     public void start() {
@@ -28,12 +32,16 @@ public class RetaskService {
         dao.revokeAuthority(recurKey);
     }
 
-    public void verifyPermits(String permitKey, int numPermits) {
-        dao.verifyPermits(permitKey, numPermits);
+    public void setAvailablePermits(String permitKey, int numPermits) {
+        dao.setAvailablePermits(permitKey, numPermits);
     }
-    
-    public int checkPermits(String permitKey) {
-        return this.dao.checkPermits(permitKey);
+
+    public int getAvailablePermits(String permitKey) {
+        return this.dao.getAvailablePermits(permitKey);
+    }
+
+    public Set<String> verifyRoutes(Collection<String> requestedRoutes) {
+        return this.recruiter.verifyRoutes(requestedRoutes);
     }
 
     public void shutdown(long timeout, TimeUnit unit) throws TimeoutException {

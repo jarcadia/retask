@@ -31,19 +31,19 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
     }
 
     @Override
-    public void handle(String taskName, Map<String, String> metadata) throws Throwable {
+    public void handle(String taskId, Map<String, String> metadata) throws Throwable {
         String routingKey = metadata.get("routingKey");
         String params = metadata.getOrDefault("params", "{}");
         int attempt = getOrDefault(metadata, "attempt", Integer::parseInt, 0) + 1;
 
-        // Extract metadata specific to change handlers (will be null for regular handlers)
+        // Extract metadata specific to change handlers (will be null for task handlers)
         String before = metadata.get("before");
         String after = metadata.get("after");
 
         String targetTimestampStr = metadata.get("targetTimestamp");
         Long targetTimestamp = targetTimestampStr == null ? procrastinator.getCurrentTimeMillis() : Long.parseLong(targetTimestampStr);
 
-        // In most cases, params should be cleared after execution. Exceptions can alter this value
+        // In most cases, params should be cleared after execution. Backlogging can alter this value
         boolean clearParams = true;
 
         // Setup recurrence if configured
@@ -53,10 +53,10 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
             String authorityKey = metadata.get("authorityKey");
             
             // Schedule recurrence
-            boolean hasAuthority = dao.recur(recurKey, taskName, authorityKey, targetTimestamp, Long.parseLong(metadata.get("recurInterval")));
+            boolean hasAuthority = dao.recur(recurKey, taskId, authorityKey, targetTimestamp, Long.parseLong(metadata.get("recurInterval")));
             if (!hasAuthority) {
                 // Task no longer has authority, return immediately
-                logger.info("Task {} lacks authority", taskName);
+                logger.info("Task {} lacks authority", taskId);
                 return;
             }
         }
@@ -68,7 +68,7 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
 
             permitKey = metadata.get("permitKey");
             if (permitKey != null) {
-                Optional<Integer> acquired = dao.acquirePermitOrBacklog(taskName, permitKey);
+                Optional<Integer> acquired = dao.acquirePermitOrBacklog(taskId, permitKey);
                 if (acquired.isPresent()) {
                     permit = acquired.get();
                 } else {
@@ -79,26 +79,21 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
             }
 
             // Invoke handler
-            Object result = delegate.invoke(taskName, routingKey, attempt, permit, before, after, params);
+            Object result = delegate.invoke(taskId, routingKey, attempt, permit, before, after, params);
 
             // Process result object
             this.handleDelegateReturnValue(result);
-
-//            // Trigger dependent tasks if completed
-//            if (metadata.containsKey("dependents")) {
-//                helper.triggerDependents(metadata.get("dependents"));
-//            }
         } catch (RetaskRetryException ex) {
-            dao.retry(taskName, ex.getDuration());
+            dao.retry(taskId, ex.getDuration());
         } finally {
             // Release acquired permit
             if (permitKey != null && permit != -1) {
                 dao.releasePermit(permitKey, permit);
-            } 
+            }
 
             // Delete task metadata
             if (clearParams) {
-                dao.clearParams(taskName);
+                dao.clearParams(taskId);
             }
         }
     }
