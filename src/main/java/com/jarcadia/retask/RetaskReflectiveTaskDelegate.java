@@ -1,6 +1,5 @@
 package com.jarcadia.retask;
 
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
@@ -11,12 +10,12 @@ import java.lang.reflect.Method;
 class RetaskReflectiveTaskDelegate implements RetaskDelegate {
 
     private final Method targetMethod;
-    private final MethodParamsProducer paramsProducer;
-    private final RetaskWorkerInstanceProvider provider;
+    private final ParamsProducer paramsProducer;
+    private final RetaskContext provider;
     private final Class<?> targetClass;
     private volatile Object targetInstance;
 
-    protected RetaskReflectiveTaskDelegate(RetaskWorkerInstanceProvider provider, Class<?> targetClass, Method targetMethod, MethodParamsProducer paramsProducer) {
+    protected RetaskReflectiveTaskDelegate(RetaskContext provider, Class<?> targetClass, Method targetMethod, ParamsProducer paramsProducer) {
         this.provider = provider;
         this.targetClass = targetClass;
         this.targetMethod = targetMethod;
@@ -24,7 +23,7 @@ class RetaskReflectiveTaskDelegate implements RetaskDelegate {
     }
 
     @Override
-    public Object invoke(String taskId, String routingKey, int attempt, int permit, String before, String after, String params) throws Throwable {
+    public Object invoke(String taskId, String routingKey, int attempt, int permit, String before, String after, String params, TaskBucket bucket) throws Throwable {
         synchronized (this) {
             if (targetInstance == null) {
                 targetInstance = provider.getInstance(targetClass);
@@ -34,17 +33,14 @@ class RetaskReflectiveTaskDelegate implements RetaskDelegate {
             }
         }
         try {
-            Object[] methodParameters = paramsProducer.produceParameters(taskId, routingKey, attempt, permit, before, after, params);
+            Object[] methodParameters = paramsProducer.produceParams(taskId, routingKey, attempt, permit, before, after, params, bucket);
             return targetMethod.invoke(targetInstance, methodParameters);
-        }
-        catch (InvocationTargetException e) {
+        } catch (RetaskParamsException ex) {
+            throw new RetaskException("Unable to produce parameters for " + targetMethod.getDeclaringClass().getSimpleName() + "." + targetMethod.getName(), ex);
+        } catch (InvocationTargetException e) {
             throw e.getCause() == null ? e : e.getCause();
-        }
-        catch (IllegalAccessException | IllegalArgumentException e) {
+        } catch (IllegalAccessException | IllegalArgumentException e) {
             throw new RetaskException("Failed to invoke task handler reflectively for routing key " + routingKey + " Params: " + params, e);
-        }
-        catch (IOException e) {
-            throw new RetaskException("Unable to deserialize parameters for routing key " + routingKey + " with params " + params, e);
         }
     }
 }

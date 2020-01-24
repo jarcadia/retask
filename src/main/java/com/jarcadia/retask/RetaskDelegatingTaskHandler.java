@@ -3,13 +3,12 @@ package com.jarcadia.retask;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
-import java.util.StringJoiner;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.jarcadia.rcommando.RedisChangedValue;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * This class is responsible for performing before/after actions related to running a task. This includes aligning to timestamps,
@@ -35,13 +34,14 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
         String routingKey = metadata.get("routingKey");
         String params = metadata.getOrDefault("params", "{}");
         int attempt = getOrDefault(metadata, "attempt", Integer::parseInt, 0) + 1;
-
-        // Extract metadata specific to change handlers (will be null for task handlers)
-        String before = metadata.get("before");
-        String after = metadata.get("after");
+        boolean publishResponse = getOrDefault(metadata, "publishResponse", Boolean::parseBoolean, false);
 
         String targetTimestampStr = metadata.get("targetTimestamp");
         Long targetTimestamp = targetTimestampStr == null ? procrastinator.getCurrentTimeMillis() : Long.parseLong(targetTimestampStr);
+
+        // Extract metadata specific to change handlers (null is expected for other handler types)
+        String before = metadata.get("before");
+        String after = metadata.get("after");
 
         // In most cases, params should be cleared after execution. Backlogging can alter this value
         boolean clearParams = true;
@@ -78,8 +78,20 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
                 }
             }
 
+
             // Invoke handler
-            Object result = delegate.invoke(taskId, routingKey, attempt, permit, before, after, params);
+            TaskBucket bucket = new TaskBucket();
+            Object result = delegate.invoke(taskId, routingKey, attempt, permit, before, after, params, bucket);
+            
+            // Publish response if requested
+            if (publishResponse) {
+            	dao.publishResponse(taskId, result);
+            }
+            
+            // Process bucketed tasks
+            for (Task task : bucket.getTasks()) {
+            	dao.submit(task);
+            }
 
             // Process result object
             this.handleDelegateReturnValue(result);
@@ -101,10 +113,10 @@ public class RetaskDelegatingTaskHandler implements TaskHandler {
     private void handleDelegateReturnValue(Object obj) {
         if (obj == null) {
             return;
-        } else if (obj instanceof Retask) {
-            dao.submit((Retask) obj);
-        } else if (obj instanceof Retask[]) {
-            dao.submit((Retask[]) obj);
+        } else if (obj instanceof Task) {
+            dao.submit((Task) obj);
+        } else if (obj instanceof Task[]) {
+            dao.submit((Task[]) obj);
         } else if (obj instanceof Optional<?>) {
             Optional<?> optional = (Optional<?>) obj;
             if (optional.isPresent()) {

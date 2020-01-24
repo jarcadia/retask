@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Assertions;
@@ -26,8 +27,8 @@ public class RetaskDaoUnitTest {
     @BeforeAll
     public static void setup() {
         redisClient = RedisClient.create("redis://localhost/15");
-        rcommando = RedisCommando.create(redisClient, new ObjectMapper());
-        objectMapper = new ObjectMapper();
+        rcommando = RedisCommando.create(redisClient);
+        objectMapper = rcommando.getObjectMapper();
     }
 
     @BeforeEach
@@ -38,7 +39,7 @@ public class RetaskDaoUnitTest {
     @Test
     void verifyTaskQueueingWorks() {
         RetaskDao dao = new RetaskDao(rcommando);
-        Retask task = Retask.create("test");
+        Task task = Task.create("test");
         dao.submit(task);
         Assertions.assertEquals(1, rcommando.core().hlen(task.getId()));
         Assertions.assertEquals("test", rcommando.core().hget(task.getId(), "routingKey"));
@@ -49,7 +50,7 @@ public class RetaskDaoUnitTest {
     @Test
     void verifyTaskQueueingWithParams() throws JsonProcessingException {
         RetaskDao dao = new RetaskDao(rcommando);
-        Retask task = Retask.create("test").param("field", "value");
+        Task task = Task.create("test").param("field", "value");
         dao.submit(task);
         Assertions.assertEquals(1, rcommando.core().llen(Key.TASKS));
         Assertions.assertIterableEquals(Arrays.asList(task.getId()), rcommando.core().lrange(Key.TASKS, 0, -1));
@@ -64,20 +65,21 @@ public class RetaskDaoUnitTest {
     @Test
     void verifyTaskQueueingWithRecurrence() {
         RetaskDao dao = new RetaskDao(rcommando);
-        Retask task = Retask.create("test").recurEvery("abc", 1, TimeUnit.SECONDS);
+        Task task = Task.create("test").recurEvery("abc", 1, TimeUnit.SECONDS);
+        String authorityKey = task.getMetadata().get("authorityKey");
         dao.submit(task);
         Assertions.assertEquals(1, rcommando.core().llen(Key.TASKS));
         Assertions.assertIterableEquals(Arrays.asList(task.getId()), rcommando.core().lrange(Key.TASKS, 0, -1));
         
         // Confirm auth map
         Assertions.assertEquals(1, rcommando.core().hlen(Key.RECUR_AUTH_KEY));
-        Assertions.assertEquals(task.getAuthorityKey(), rcommando.core().hget(Key.RECUR_AUTH_KEY, task.getRecurKey()));
+        Assertions.assertEquals(authorityKey, rcommando.core().hget(Key.RECUR_AUTH_KEY, "abc"));
         
         // Confirm task values
         Assertions.assertEquals(4, rcommando.core().hlen(task.getId()));
         Assertions.assertEquals("test", rcommando.core().hget(task.getId(), "routingKey"));
         Assertions.assertEquals("abc", rcommando.core().hget(task.getId(), "recurKey"));
-        Assertions.assertEquals(task.getAuthorityKey(), rcommando.core().hget(task.getId(), "authorityKey"));
+        Assertions.assertEquals(authorityKey, rcommando.core().hget(task.getId(), "authorityKey"));
         Assertions.assertEquals("1000", rcommando.core().hget(task.getId(), "recurInterval"));
     }
     
@@ -85,7 +87,7 @@ public class RetaskDaoUnitTest {
     void verifyTaskSchedulingWorks() {
         RetaskDao dao = new RetaskDao(rcommando);
         long target = System.currentTimeMillis() + 1000;
-        Retask task = Retask.create("test").at(target);
+        Task task = Task.create("test").at(target);
         dao.submit(task);
         Assertions.assertEquals(2, rcommando.core().hlen(task.getId()));
         Assertions.assertEquals("test", rcommando.core().hget(task.getId(), "routingKey"));
@@ -100,7 +102,7 @@ public class RetaskDaoUnitTest {
     void verifyTaskSchedulingWithParamsWorks() throws JsonProcessingException {
         RetaskDao dao = new RetaskDao(rcommando);
         long target = System.currentTimeMillis() + 1000;
-        Retask task = Retask.create("test").at(target).param("field", "value");
+        Task task = Task.create("test").at(target).param("field", "value");
         dao.submit(task);
         Assertions.assertEquals(3, rcommando.core().hlen(task.getId()));
         Assertions.assertEquals("test", rcommando.core().hget(task.getId(), "routingKey"));
@@ -118,13 +120,14 @@ public class RetaskDaoUnitTest {
     void verifyTaskSchedulingWithRecurrenceWorks() {
         RetaskDao dao = new RetaskDao(rcommando);
         long target = System.currentTimeMillis() + 1000;
-        Retask task = Retask.create("test").at(target).recurEvery("abc", 1, TimeUnit.SECONDS);
+        Task task = Task.create("test").at(target).recurEvery("abc", 1, TimeUnit.SECONDS);
+        String authorityKey = task.getMetadata().get("authorityKey");
         dao.submit(task);
         Assertions.assertEquals(5, rcommando.core().hlen(task.getId()));
         Assertions.assertEquals("test", rcommando.core().hget(task.getId(), "routingKey"));
         Assertions.assertEquals(String.valueOf(target), rcommando.core().hget(task.getId(), "targetTimestamp"));
         Assertions.assertEquals("abc", rcommando.core().hget(task.getId(), "recurKey"));
-        Assertions.assertEquals(task.getAuthorityKey(), rcommando.core().hget(task.getId(), "authorityKey"));
+        Assertions.assertEquals(authorityKey, rcommando.core().hget(task.getId(), "authorityKey"));
         Assertions.assertEquals("1000", rcommando.core().hget(task.getId(), "recurInterval"));
         
         Assertions.assertEquals(1, rcommando.core().zcard(Key.SCHEDULED));
@@ -133,7 +136,7 @@ public class RetaskDaoUnitTest {
         
         // Confirm auth map
         Assertions.assertEquals(1, rcommando.core().hlen(Key.RECUR_AUTH_KEY));
-        Assertions.assertEquals(task.getAuthorityKey(), rcommando.core().hget(Key.RECUR_AUTH_KEY, task.getRecurKey()));
+        Assertions.assertEquals(authorityKey, rcommando.core().hget(Key.RECUR_AUTH_KEY, "abc"));
     }
 
     @Test

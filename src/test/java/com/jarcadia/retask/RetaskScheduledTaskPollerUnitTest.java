@@ -40,7 +40,7 @@ public class RetaskScheduledTaskPollerUnitTest {
         poller.start();
         List<String> readyTasks = Arrays.asList("task1", "task2");
         Mockito.when(dao.pollForScheduledTasks(ArgumentMatchers.anyLong())).thenReturn(readyTasks).thenReturn(Collections.emptyList());
-        Mockito.verify(dao, Mockito.timeout(Duration.ofMillis(100)).times(1)).queueTaskIds(readyTasks);
+        Mockito.verify(dao, Mockito.timeout(Duration.ofMillis(100)).atLeastOnce()).queueTaskIds(readyTasks);
         poller.close();
         poller.join(100, TimeUnit.MILLISECONDS);
     }

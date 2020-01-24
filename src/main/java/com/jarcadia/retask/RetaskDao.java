@@ -3,12 +3,16 @@ package com.jarcadia.retask;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.StringJoiner;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jarcadia.rcommando.RedisCommando;
 import com.jarcadia.rcommando.RedisEval;
 
@@ -18,65 +22,50 @@ class RetaskDao {
     private final Logger logger = LoggerFactory.getLogger(RetaskDao.class);
     
     private final RedisCommando rcommando;
+    private final ObjectMapper objectMapper;
+    private final TaskResponseListener responseListener;
     
     public RetaskDao(RedisCommando rcommando) {
         this.rcommando = rcommando;
+        this.objectMapper = rcommando.getObjectMapper();
+        this.responseListener = new TaskResponseListener(rcommando);
     }
     
-    protected void submit(Retask... tasks) {
-        for (Retask task : tasks) {
-            if (task.isScheduled()) {
-                scheduleTask(task).returnStatus();
-            } else {
-            	queueTask(task).returnStatus();
-            }
+    protected void submit(Task... tasks) {
+        for (Task task : tasks) {
+            submitTask(task);
             logger.trace("Submitted task {} {} {}", task.getId(), task.getMetadata(), task.getParams());
         }
     }
     
-    private RedisEval queueTask(Retask task) {
+    private String submitTask(Task task) {
     	RedisEval eval = rcommando.eval()
-    			.addKeys(Key.TASKS, task.getId());
-    	prepRecurrence(task, eval, LuaScripts.QUEUE_TASK, LuaScripts.QUEUE_TASK_WITH_RECUR);
-    	prepMetadata(task, eval);
-    	prepParams(task, eval);
-    	return eval;
-    }
-    
-    private RedisEval scheduleTask(Retask task) {
-    	RedisEval eval = rcommando.eval()
-    			.addKeys(Key.SCHEDULED, task.getId())
-    			.addArg("targetTimestamp")
-    			.addArg(task.getTargetTimestamp());
-    	prepRecurrence(task, eval, LuaScripts.SCHEDULE_TASK, LuaScripts.SCHEDULE_TASK_WITH_RECUR);
-    	prepMetadata(task, eval);
-    	prepParams(task, eval);
-    	return eval;
-    }
-    
-    private void prepRecurrence(Retask task, RedisEval eval, String scriptWithoutRecurrence, String scriptWithRecurrence) {
-    	if (task.isRecurring()) {
-    		eval.cachedScript(scriptWithRecurrence);
-    		eval.addKey(Key.RECUR_AUTH_KEY);
-    		eval.addArgs("recurKey", task.getRecurKey(), "authorityKey", task.getAuthorityKey());
-    	} else {
-    		eval.cachedScript(scriptWithoutRecurrence);
-    	}
-    }
-    
-    private void prepMetadata(Retask task, RedisEval eval) {
+    			.cachedScript(LuaScripts.SUBMIT_TASK)
+    			.addKeys(Key.TASKS, Key.SCHEDULED, Key.RECUR_AUTH_KEY, task.getId());
     	for (Entry<String, String> entry : task.getMetadata().entrySet()) {
     		if (entry.getValue() != null) {
                 eval.addArgs(entry.getKey(), entry.getValue());
     		}
     	}
-    }
-    
-    private void prepParams(Retask task, RedisEval eval) {
     	if (task.hasParams()) {
     		eval.addArg("params");
     		eval.addArg(task.getParams());
     	}
+    	return eval.returnStatus();
+    }
+    
+    protected <T> Future<T> call(Task task, Class<T> clazz) {
+    	CompletableFuture<T> future = responseListener.await(task.getId(), clazz);
+    	task.shouldPublishResponse();
+    	this.submit(task);
+        return future;
+    }
+
+    protected <T> Future<T> call(Task task, TypeReference<T> typeRef) {
+    	CompletableFuture<T> future = responseListener.await(task.getId(), typeRef);
+    	task.shouldPublishResponse();
+    	this.submit(task);
+        return future;
     }
     
     protected void retry(String taskId, long millis) {
@@ -111,7 +100,7 @@ class RetaskDao {
     }
 
     protected void setAvailablePermits(String permitKey, int numPermits) {
-        logger.info("Initializing {} permits for {}", numPermits, permitKey);
+        logger.debug("Initializing {} permits for {}", numPermits, permitKey);
         rcommando.eval()
                 .cachedScript(LuaScripts.SET_AVAILABLE_PERMITS)
                 .addKeys(permitKey + ".available", permitKey + ".assigned")
@@ -141,6 +130,12 @@ class RetaskDao {
                 .cachedScript(LuaScripts.GET_AVAILABLE_PERMITS)
                 .addKeys(permitKey + ".available", permitKey + ".backlog")
                 .returnInt();
+    }
+    
+    protected void publishResponse(String taskId, Object response) throws JsonProcessingException {
+    	logger.debug("Publishing response for {} : {}", taskId, response);
+    	String msg = response == null ? "" : objectMapper.writeValueAsString(response);
+    	rcommando.core().publish("task.response." + taskId, msg);
     }
 
     protected void clearParams(String task) {

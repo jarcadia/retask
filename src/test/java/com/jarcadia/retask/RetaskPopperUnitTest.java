@@ -21,7 +21,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import com.jarcadia.rcommando.RedisException;
+import com.jarcadia.rcommando.RcException;
 
 import io.lettuce.core.RedisCommandInterruptedException;
 
@@ -64,7 +64,7 @@ public class RetaskPopperUnitTest {
     @Test
     void taskPopperStopsCorrectlyWhenInterruptedWhileAwaitingExceptionHandlingDelay() throws TimeoutException, InterruptedException {
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
-        Mockito.when(dao.popTask()).thenThrow(new RedisException("Generally failed to pop task"));
+        Mockito.when(dao.popTask()).thenThrow(new RcException("Generally failed to pop task"));
         doThrow(new InterruptedException()).when(procrastinator).sleepFor(1000L);
         taskPopper.start();
         taskPopper.join(1000, TimeUnit.MILLISECONDS);
@@ -73,7 +73,7 @@ public class RetaskPopperUnitTest {
     @Test
     void taskPopperContinuesAfterDelayIfItEncountersAnUnexpectedException() throws TimeoutException, InterruptedException, ExecutionException {
         RetaskTaskPopper taskPopper = new RetaskTaskPopper(dao, executor, (task, metadata) -> {}, procrastinator);
-        Mockito.when(dao.popTask()).thenThrow(new RedisException("Generally failed to pop task"));
+        Mockito.when(dao.popTask()).thenThrow(new RcException("Generally failed to pop task"));
         taskPopper.start();
         Mockito.verify(dao, Mockito.timeout(Duration.ofMillis(100)).atLeastOnce()).popTask();
         Mockito.verify(procrastinator, Mockito.atLeastOnce()).sleepFor(1000L);

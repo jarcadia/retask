@@ -9,6 +9,6 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface RetaskChangeHandler {
 
-    String mapKey();
+    String setKey();
     String field();
 }

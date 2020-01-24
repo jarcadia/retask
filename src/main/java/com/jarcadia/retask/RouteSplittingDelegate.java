@@ -26,14 +26,14 @@ class RouteSplittingDelegate implements RetaskDelegate {
     }
 
     @Override
-    public Object invoke(String taskId, String routingKey, int attempt, int permit, String before, String after, String params) throws Throwable {
+    public Object invoke(String taskId, String routingKey, int attempt, int permit, String before, String after, String params, TaskBucket bucket) throws Throwable {
         final List<CompletableFuture<Object>> futures = delegates.stream().map(d -> new CompletableFuture<>()).collect(Collectors.toList());
         for (int i=0; i<delegates.size(); i++) {
             final RetaskDelegate delegate = delegates.get(i);
             final CompletableFuture<Object> future = futures.get(i);
             executor.submit(() -> {
                 try {
-                    Object returnValue = delegate.invoke(taskId, routingKey, attempt, permit, before, after, params);
+                    Object returnValue = delegate.invoke(taskId, routingKey, attempt, permit, before, after, params, bucket);
                     future.complete(returnValue);
                 }
                 catch (Throwable e) {
@@ -48,7 +48,7 @@ class RouteSplittingDelegate implements RetaskDelegate {
                 results.add(future.get());
             }
             catch (InterruptedException | ExecutionException e) {
-                logger.warn("Unhandled exception while processing task {} routingKey: {}, before: {}, after: {}, param: {}", taskId, params, e);
+                logger.warn("Unhandled exception while processing task {} routingKey: {}, before: {}, after: {}, param: {}", taskId, routingKey, params, e);
             }
         }
         return results;

@@ -1,50 +1,34 @@
 package com.jarcadia.retask;
 
-public class LuaScripts {
+class LuaScripts {
 	
 	/**
-	 * Sets task metadata and insert tasks into back of queue
-	 * Keys: tasksHash, recurAuthHash, taskId
+	 * Submits task by setting required metadata and queueing or scheduling as required
+	 * Keys: taskHash, scheduledHash, recurAuthHash, taskId
 	 * Args: field, value [... field value]
 	 */
-	public static String QUEUE_TASK = """
-        redis.call('hmset', KEYS[2], unpack(ARGV));
-        redis.call('rpush', KEYS[1], KEYS[2])
+	protected static String SUBMIT_TASK = """
+		local m = {};
+        for i=1, #ARGV, 2 do
+			if ARGV[i] == 'targetTimestamp' or
+			   ARGV[i] == 'recurKey' or
+			   ARGV[i] == 'authorityKey' then
+                m[ARGV[i]] = ARGV[i+1];
+            end
+        end
+        if m.recurKey ~= nil and m.authorityKey ~= nil then
+			redis.call('hset', KEYS[3], m.recurKey, m.authorityKey);
+		end
+        redis.call('hmset', KEYS[4], unpack(ARGV));
+		if m.targetTimestamp ~= nil then
+            redis.call('zadd', KEYS[2], m.targetTimestamp, KEYS[4])
+        else
+            redis.call('rpush', KEYS[1], KEYS[4])
+        end
+        return m.recurKey;
 	""";
 	
-	/**
-	 * Sets recurring task metadata and insert tasks into back of queue
-	 * Keys: tasksHash, taskId, recurAuthHash
-	 * Args: 'recurKey', recurKey, 'authorityKey', authKey, field, value [... field value]
-	 */
-	public static String QUEUE_TASK_WITH_RECUR = """
-        redis.call('hmset', KEYS[2], unpack(ARGV));
-        redis.call('hset', KEYS[3], ARGV[2], ARGV[4])
-        redis.call('rpush', KEYS[1], KEYS[2])
-	""";
-	
-	/**
-	 * Sets non-recurring task metadata and schedules task
-	 * Keys: scheduledHash, taskId 
-	 * Args: 'targetTimestamp', targetTimestamp, field, value [... field value]
-	 */
-	public static String SCHEDULE_TASK = """
-        redis.call('hmset', KEYS[2], unpack(ARGV));
-        redis.call('zadd', KEYS[1], ARGV[2], KEYS[2])
-	""";
-	
-	/**
-	 * Sets recurring task metadata and schedules task
-	 * Keys: scheduledHash, taskId, recurAuthHash
-	 * Args: 'targetTimestamp', targetTimestamp, 'recurKey', recurKey, 'authorityKey', authKey, field, value [... field value]
-	 */
-	public static String SCHEDULE_TASK_WITH_RECUR = """
-        redis.call('hmset', KEYS[2], unpack(ARGV));
-        redis.call('hset', KEYS[3], ARGV[4], ARGV[6])
-        redis.call('zadd', KEYS[1], ARGV[2], KEYS[2])
-	""";
-	
-	public static String TRIGGER_SUBSEQUENT_TASKS = """
+	protected static String TRIGGER_SUBSEQUENT_TASKS = """
 		-- Trigger subsequent tasks (setup with .after(this.id))
         -- Keys: tasksList afterList
         local subsequentTasks = redis.call('lrange', KEYS[2], 0, -1)
@@ -53,7 +37,7 @@ public class LuaScripts {
         end
 	""";
 	
-	public static String RETRY_TASK = """
+	protected static String RETRY_TASK = """
         -- Retry task after failure
         -- Keys: scheduledZSetKey taskId nextId
         -- Args: nextTimestamp
@@ -64,7 +48,7 @@ public class LuaScripts {
         redis.call('zadd', KEYS[1], ARGV[1], KEYS[3])
 	""";
 
-	public static String RECUR_TASK = """
+	protected static String RECUR_TASK = """
         -- Recur a task
         -- Keys: taskQueue scheduledTaskZSet recurLockHashKey recurAuthorityHashKey recurKey taskId nextTaskId
         -- Args: targetTimestamp, nextTimestamp, authorityKey
@@ -93,7 +77,7 @@ public class LuaScripts {
         end
 	""";
 
-	public static String SET_AVAILABLE_PERMITS = """
+	protected static String SET_AVAILABLE_PERMITS = """
         local function contains(list, val)
             for index, value in ipairs(list) do
                 if (val == value) then
@@ -125,7 +109,7 @@ public class LuaScripts {
         return redis.status_reply('OK');
 	""";
 
-	public static String ACQUIRE_PERMIT_OR_BACKLOG = """
+	protected static String ACQUIRE_PERMIT_OR_BACKLOG = """
         local permit = redis.call('rpoplpush', KEYS[1], KEYS[2]);
         if (permit) then
             return tonumber(permit);
@@ -135,7 +119,7 @@ public class LuaScripts {
         end
 	""";
 
-	public static String RELEASE_PERMIT = """
+	protected static String RELEASE_PERMIT = """
         -- Remove permit from assigned
         redis.call('lrem', KEYS[2], -1, ARGV[1]);
         -- Add permit to available
@@ -148,7 +132,7 @@ public class LuaScripts {
         end
 	""";
 
-	public static String GET_AVAILABLE_PERMITS = """
+	protected static String GET_AVAILABLE_PERMITS = """
         -- Return the queue length for a permit. Negative number indicates how many permits are available, > 0 indicates backlog queue length
         -- Keys: available backlog
         local available = redis.call('llen', KEYS[1]);
@@ -159,12 +143,11 @@ public class LuaScripts {
         end
 	""";
 	
-	public static String SCHEDULED_TASK_POLL = """
+	protected static String SCHEDULED_TASK_POLL = """
 		local due = redis.call('zrangebyscore', KEYS[1], 0, ARGV[1]);
         for i=1, #due do
             redis.call('zrem', KEYS[1], due[i]);
         end
         return due;
 	""";
-
 }

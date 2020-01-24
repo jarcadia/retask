@@ -46,9 +46,13 @@ class RetaskScheduledTaskPoller implements Runnable, Closeable {
                 break;
             }
             catch (Exception e) {
-                System.out.println("Unexpected exception");
-                e.printStackTrace();
-                logger.warn("Exception while polling for scheduled tasks, exiting polling thread", e);
+                logger.warn("Exception while polling for scheduled tasks", e);
+                try {
+					procrastinator.sleepFor(1000);
+				} catch (InterruptedException e1) {
+                    logger.info("Scheduled task polling interrupted while waiting for recovery, exiting polling thread");
+                    break;
+				}
             }
         }
         closedFuture.complete(null);

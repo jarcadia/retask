@@ -1,6 +1,6 @@
 package com.jarcadia.retask;
 
 @FunctionalInterface
-public interface RetaskWorkerInstanceProvider {
+public interface RetaskContext {
     public Object getInstance(Class<?> clazz);
 }

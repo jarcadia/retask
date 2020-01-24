@@ -21,7 +21,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     }
     
     private RetaskDelegate createVerifyingWrapper(String task, String routingKey, int attempt, int permit, String changedId, String before, String after, Object returnValue) {
-        return (receivedTask, receivedRoutingKey, receivedAttempt, receivedPermit, receivedBefore, receivedAfter, receivedParams) -> {
+        return (receivedTask, receivedRoutingKey, receivedAttempt, receivedPermit, receivedBefore, receivedAfter, receivedParams, bucket) -> {
             Assertions.assertEquals(receivedTask, task);
             Assertions.assertEquals(receivedRoutingKey, routingKey);
             Assertions.assertEquals(receivedAttempt, attempt);
@@ -56,7 +56,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         RetaskDao helper = Mockito.mock(RetaskDao.class);
         RetaskDelegatingTaskHandler handler = createHandler(helper, delegate);
         
-        Retask task = Retask.create("routingKey");
+        Task task = Task.create("routingKey");
         handler.handle("abc", task.getMetadata());
         
         assertDelegateInvoked();
@@ -64,14 +64,14 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     
     @Test
     void taskRequestsRetryCorrectly() throws Throwable {
-        RetaskDelegate delegate = (receivedTask, receivedRoutingKey, receivedAttempt, receivedPermit, receivedBefore, receivedAfter, receivedParams) -> {
+        RetaskDelegate delegate = (receivedTask, receivedRoutingKey, receivedAttempt, receivedPermit, receivedBefore, receivedAfter, receivedParams, bucket) -> {
             Assertions.assertEquals(receivedTask, "abc");
             Assertions.assertEquals(receivedRoutingKey, "routingKey");
             executed.set(true);
             throw new RetaskRetryException(5, TimeUnit.SECONDS);
         };
         
-        Retask task = Retask.create("routingKey");
+        Task task = Task.create("routingKey");
 
         RetaskDao helper = Mockito.mock(RetaskDao.class);
 
@@ -88,7 +88,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     @Test
     void attemptIsIncrementedCorrectly() throws Throwable {
         
-        Retask task = Retask.create("routingKey");
+        Task task = Task.create("routingKey");
         Map<String, String> metadata = task.getMetadata();
         metadata.put("attempt", "2");
 
@@ -108,8 +108,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     void taskRecursCorrectlyWhenAuthorityIsPresent() throws Throwable {
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, null);
         
-        Retask task = Retask.create("routingKey").recurEvery("test-recur", 1, TimeUnit.SECONDS);
-        String generatedAuthKey = task.getAuthorityKey();
+        Task task = Task.create("routingKey").recurEvery("test-recur", 1, TimeUnit.SECONDS);
+        String generatedAuthKey = task.getMetadata().get("authorityKey");
 
         RetaskDao helper = Mockito.mock(RetaskDao.class);
         Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 500L, 1000L)).thenReturn(true);
@@ -119,8 +119,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
 
         // Add additional metadata (automatically done by Lua script)
         Map<String, String> metadata = task.getMetadata();
-        metadata.put("recurKey", task.getRecurKey());
-        metadata.put("authorityKey", task.getAuthorityKey());
+        metadata.put("recurKey", "test-recur");
+        metadata.put("authorityKey", generatedAuthKey);
         
         // Invoke the task
         RetaskDelegatingTaskHandler handler = createHandler(helper, delegate, procrastinator);
@@ -136,8 +136,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     void doesNotRecurWhenLackingAuthority() throws Throwable {
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, null);
 
-        Retask task = Retask.create("test").recurEvery("test-recur", 1, TimeUnit.SECONDS);
-        String generatedAuthKey = task.getAuthorityKey();
+        Task task = Task.create("test").recurEvery("test-recur", 1, TimeUnit.SECONDS);
+        String generatedAuthKey = task.getMetadata().get("authorityKey");
 
         RetaskDao helper = Mockito.mock(RetaskDao.class);
         Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 0, 1000L)).thenReturn(false);
@@ -147,8 +147,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         
         // Add additional metadata (automatically done by Lua script)
         Map<String, String> metadata = task.getMetadata();
-        metadata.put("recurKey", task.getRecurKey());
-        metadata.put("authorityKey", task.getAuthorityKey());
+        metadata.put("recurKey", "test-recur");
+        metadata.put("authorityKey", generatedAuthKey);
 
         // Invoke the task
         createHandler(helper, delegate, procrastinator).handle("abc", metadata);
@@ -161,7 +161,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     @Test
     void runsAfterSucessfullyAcquiringPermit() throws Throwable {
         RetaskDelegate wrapper = createVerifyingWrapper("abc", "routingKey", 1, 2, null, null, null, null);
-        Retask task = Retask.create("routingKey").permit("permitKey");
+        Task task = Task.create("routingKey").requirePermit("permitKey");
 
         // Create mocked helper to acquire permit 2
         RetaskDao helper = Mockito.mock(RetaskDao.class);
@@ -181,7 +181,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     @Test
     void doesNotRunWhenAPermitIsUnavailable() throws Throwable {
         RetaskDelegate wrapper = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, null);
-        Retask task = Retask.create("routingKey").permit("permitKey");
+        Task task = Task.create("routingKey").requirePermit("permitKey");
 
         // Create mocked helper to reject permit
         RetaskDao helper = Mockito.mock(RetaskDao.class);
@@ -200,8 +200,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     void singleRetaskReturnValueIsSubmitted() throws Throwable {
         RetaskDao helper = Mockito.mock(RetaskDao.class);
 
-        Retask task = Retask.create("routingKey");
-        Retask returnedTask = Retask.create("returned");
+        Task task = Task.create("routingKey");
+        Task returnedTask = Task.create("returned");
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, returnedTask);
 
         // Invoke the task
@@ -218,8 +218,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     void retaskArrayReturnValueIsSubmitted() throws Throwable {
         RetaskDao helper = Mockito.mock(RetaskDao.class);
 
-        Retask task = Retask.create("routingKey");
-        Retask[] returnedTasks = new Retask[] {Retask.create("returnedOne"), Retask.create("returnedTwo")};
+        Task task = Task.create("routingKey");
+        Task[] returnedTasks = new Task[] {Task.create("returnedOne"), Task.create("returnedTwo")};
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, returnedTasks);
 
         // Invoke the task
@@ -236,8 +236,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     void retaskListReturnValueIsSubmitted() throws Throwable {
         RetaskDao helper = Mockito.mock(RetaskDao.class);
 
-        Retask task = Retask.create("routingKey");
-        Retask returnedTask = Retask.create("returnedOne");
+        Task task = Task.create("routingKey");
+        Task returnedTask = Task.create("returnedOne");
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, Collections.singletonList(returnedTask));
 
         // Invoke the task
@@ -255,8 +255,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         RetaskDao helper = Mockito.mock(RetaskDao.class);
 
         long targetTimestamp = System.currentTimeMillis() + 10000;
-        Retask task = Retask.create("routingKey").at(targetTimestamp);
-        Retask returnedTask = Retask.create("returnedOne");
+        Task task = Task.create("routingKey").at(targetTimestamp);
+        Task returnedTask = Task.create("returnedOne");
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, Collections.singletonList(returnedTask));
 
         // Mock Sleeper

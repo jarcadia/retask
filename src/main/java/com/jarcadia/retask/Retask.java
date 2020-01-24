@@ -1,154 +1,188 @@
 package com.jarcadia.retask;
 
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
-import com.jarcadia.rcommando.RedisObject;
-import com.jarcadia.rcommando.RedisValue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.jarcadia.rcommando.FieldChangeCallback;
+import com.jarcadia.rcommando.ObjectDeleteCallback;
+import com.jarcadia.rcommando.ObjectInsertCallback;
+import com.jarcadia.rcommando.RedisCommando;
+import com.jarcadia.retask.HandlerMethod.HandlerType;
+
+import io.lettuce.core.RedisClient;
 
 public class Retask {
+    
+    private static final Logger logger = LoggerFactory.getLogger(Retask.class);
+    
+    private final RetaskDao dao;
+    private final RecruitmentResults recruitmentResults;
 
-    private final String id;
-    private Long targetTimestamp;
-    private String recurKey;
-    private String authorityKey;
-    private Long recurInterval;
-    private final Map<String, String> metadata;
-    private final Map<String, Object> params;
-
-    public static Retask create(String routingKey) {
-        return new Retask(UUID.randomUUID().toString(), routingKey);
-    }
-
-    private Retask(String id, String routingKey) {
-        this.id = id;
-        this.metadata = new HashMap<>();
-        if (routingKey != null) {
-            metadata.put("routingKey", routingKey);
-        }
-        this.params = new HashMap<>();
-    }
-
-    public Retask in(long duration, TimeUnit unit) {
-        return at(System.currentTimeMillis() + unit.toMillis(duration));
-    }
-
-    public Retask at(long timestamp) {
-        this.targetTimestamp = timestamp;
-        return this;
-    }
-
-    public Retask recurEvery(String recurKey, long interval, TimeUnit unit) {
-        this.recurKey = recurKey;
-        this.recurInterval = unit.toMillis(interval);
-        this.authorityKey = UUID.randomUUID().toString();
-        metadata.put("recurInterval", String.valueOf(recurInterval));
-        return this;
-    }
-
-    public Retask permit(String permitKey) {
-        metadata.put("permitKey", permitKey);
-        return this;
-    }
-
-    public Retask param(String key, Object value) {
-        params.put(key, value);
-        return this;
+    private Retask(RetaskDao dao, RecruitmentResults recruitmentResults) {
+        this.dao = dao;
+        this.recruitmentResults = recruitmentResults;
     }
     
-    public Retask objParam(RedisObject object) {
-        return this.objParam("object", object);
-    }
-
-    public Retask objParam(String mapKey, String id) {
-        return this.objParam("object", mapKey, id);
-    }
-
-    public Retask objParam(String name, RedisObject object) {
-        return this.objParam(name, object.getMapKey(), object.getId());
-    }
-
-    public Retask objParam(String name, String mapKey, String id) {
-        if (params.containsKey(name)) {
-            throw new RetaskException("Cannot create task with multiple default object params");
-        } else {
-            Map<String, String> obj = new HashMap<>();
-            obj.put("mapKey", mapKey);
-            obj.put("id", id);
-            params.put(name, obj);;
-            return this;
-        }
+    public void submit(Task... tasks) {
+        dao.submit(tasks);
     }
     
+    public Future<Void> call(Task task) {
+    	return dao.call(task, Void.class);
+    }
+    
+    public <T> Future<T> call(Task task, Class<T> clazz) {
+    	return dao.call(task, clazz);
+    }
+    
+    public <T> Future<T> call(Task task, TypeReference<T> typeRef) {
+    	return dao.call(task, typeRef);
+    }
+    
+    public void revokeAuthority(String recurKey) {
+        dao.revokeAuthority(recurKey);
+    }
+
+    public void setAvailablePermits(String permitKey, int numPermits) {
+        dao.setAvailablePermits(permitKey, numPermits);
+    }
+
+    public int getAvailablePermits(String permitKey) {
+        return this.dao.getAvailablePermits(permitKey);
+    }
+
+    public Set<String> verifyRecruits(Collection<String> requestedRoutes) {
+        return this.recruitmentResults.verifyRecruits(requestedRoutes);
+    }
+    
+    public <A extends Annotation> List<HandlerMethod<A>> getRecruitsByAnnontation(Class<A> annontationClass) {
+        return this.recruitmentResults.getRecruitsFor(annontationClass);
+    }
+    
+    public static RetaskManager init(RedisClient redis, RedisCommando rcommando, RetaskRecruiter recruiter, RetaskContext instanceProvider) {
+        
+        // Create internal prereqs
+        ExecutorService executor = Executors.newCachedThreadPool();
+        RetaskDao dao = new RetaskDao(rcommando);
+
+        final RecruitmentResults recruitmentResults = recruiter.recruit();
+
+        // Create public API
+        Retask retask = new Retask(dao, recruitmentResults);
+        
+        // Setup insert handlers
+        for (HandlerMethod<?> insertHandler : dedupeHandlersByRoutingKey(recruitmentResults.getRecruitsFor(HandlerType.INSERT))) {
+            ObjectInsertCallback callback = (setKey, id) -> {
+                Task task = Task.create(insertHandler.getRoutingKey()).param("object", Map.of("setKey", setKey, "id", id));
+                dao.submit(task);
+            };
+            rcommando.registerObjectInsertCallback(insertHandler.getSetKey(), callback);
+        }
+
+        // Setup delete handlers
+        for (HandlerMethod<?> deleteHandler : dedupeHandlersByRoutingKey(recruitmentResults.getRecruitsFor(HandlerType.DELETE))) {
+            ObjectDeleteCallback callback = (setKey, id) -> {
+                Task task = Task.create(deleteHandler.getRoutingKey()).param("id", id);
+                dao.submit(task);
+            };
+            rcommando.registerObjectDeleteCallback(deleteHandler.getSetKey(), callback);
+        }
+        
+        // Setup change handlers
+        for (HandlerMethod<?> changeHandler : dedupeHandlersByRoutingKey(recruitmentResults.getRecruitsFor(HandlerType.CHANGE))) {
+        	 FieldChangeCallback callback = (setKey, id, version, field, before, after) -> {
+                 Task task = Task.create(changeHandler.getRoutingKey()).forChangedValue(setKey, id, before, after);
+                 dao.submit(task);
+                 logger.trace("Dispatched change task {}: {}.{}.{}: {} -> {}", task.getId(), setKey, id, field, before.getRawValue(), after.getRawValue());
+             };
+             rcommando.registerFieldChangeCallback(changeHandler.getSetKey(), changeHandler.getFieldName(), callback);
+        }
+
+        // Get handler methods by routingKey
+        Map<String, List<HandlerMethod<?>>> routes = recruitmentResults.getHandlersByRoutingKey();
+        
+        // Build delegates for each discovered route/method
+        Map<String, RetaskDelegate> routeToDelegateMap = buildTaskDelegatesForRoutes(rcommando, retask, executor, instanceProvider, routes);
+
+        // Create a routing delegator for the route > delegate map
+        RetaskDelegate router = new RetaskDelegateRouter(routeToDelegateMap);
+
+        // Create a procrastinator for handler and poller
+        RetaskProcrastinator procrastinator = new RetaskProcrastinator();
+        
+        // Create a handler that delegates to the routing delegator
+        TaskHandler handler = new RetaskDelegatingTaskHandler(dao, router, procrastinator);
+
+        // Create RetaskTaskPopper
+        RetaskTaskPopperDao taskPopperDao = new RetaskTaskPopperDao(rcommando.clone());
+        RetaskTaskPopper taskPopper = new RetaskTaskPopper(taskPopperDao, executor, handler, procrastinator);
+
+        // Create RetaskScheduledTaskPoller
+        RetaskScheduledTaskPoller scheduledTaskPoller = new RetaskScheduledTaskPoller(dao, procrastinator);
+
+        return new RetaskManager(taskPopper, scheduledTaskPoller, retask);
+    }
     
     /**
-     * Syntactic sugar for when the required return type of a handler method is a List<Retask> but
-     * only a single task needs to be returned
-     * @return
+     * There can be multiple insert, delete, or change callbacks for the same setKey/fieldName. These distinct 
+     * handlers that overlap as described would share the same routingKey. On an insert/delete/change, only one task
+     * needs to be created. The different handlers will be routed to automatically once the task is popped.
+     * 
+     * This helper method dedupes the routing keys in a list of HandlerMethods to ensure only one task is pushed for
+     * each (potentially shared) routing key. Note it doesn't matter which HandlerMethod is chosen, as long as they
+     * are deduped by routing key.
      */
-    public List<Retask> asList() {
-        return Collections.singletonList(this);
+    private static List<HandlerMethod<?>> dedupeHandlersByRoutingKey(List<HandlerMethod<?>> handlers) {
+    	return handlers.stream()
+                .collect(Collectors.groupingBy(HandlerMethod::getRoutingKey)).values().stream()
+                .map(list -> list.stream().findAny().get())
+                .collect(Collectors.toList());
     }
-    
-    public List<Retask> and(Retask... tasks) {
-        List<Retask> result = new LinkedList<>();
-        result.add(this);
-        for (Retask task : tasks) {
-            result.add(task);
+
+    private static Map<String, RetaskDelegate> buildTaskDelegatesForRoutes(RedisCommando rcommando, Retask retask, ExecutorService executor,
+            RetaskContext instanceProvider, Map<String, List<HandlerMethod<?>>> routes) {
+        Map<String, RetaskDelegate> routeToDelegateMap = new HashMap<>();
+        for (String routingKey : routes.keySet()) {
+            List<HandlerMethod<?>> workerMethods = routes.get(routingKey);
+            routeToDelegateMap.put(routingKey, createDelegateForRoute(rcommando, retask, executor, instanceProvider, workerMethods));
         }
-        return result;
+        return Collections.unmodifiableMap(routeToDelegateMap);
+    }
+
+    private static RetaskDelegate createDelegateForRoute(RedisCommando rcommando, Retask retask, ExecutorService executor, RetaskContext provider, List<HandlerMethod<?>> handlerMethods) {
+        if (handlerMethods.size() == 1) {
+            return createReflectiveTaskDelegate(rcommando, retask, provider, handlerMethods.iterator().next());
+        } else {
+            return createRouteSplittingDelegate(rcommando, retask, executor, provider, handlerMethods);
+        }
     }
     
-    public void addTo(List<Retask> list) {
-        list.add(this);
-    }
-
-    protected Retask forChangedValue(String mapKey, String id, RedisValue before, RedisValue after) {
-        this.objParam("object", mapKey, id);
-        this.metadata.put("before", before.getRawValue());
-        this.metadata.put("after", after.getRawValue());
-        return this;
-    }
-
-    protected String getId() {
-        return this.id;
-    } 
-
-    protected boolean isScheduled() {
-        return targetTimestamp != null;
+    private static RetaskDelegate createRouteSplittingDelegate(RedisCommando rcommando, Retask retask,  ExecutorService executor, RetaskContext provider, List<HandlerMethod<?>> handlerMethods) {
+        List<RetaskDelegate> delegates = new LinkedList<>();
+        for (HandlerMethod<?> handlerMethod : handlerMethods) {
+            delegates.add(createReflectiveTaskDelegate(rcommando, retask, provider, handlerMethod));
+        }
+        return new RouteSplittingDelegate(executor, delegates);
     }
     
-    protected long getTargetTimestamp() {
-        return targetTimestamp;
+    private static RetaskDelegate createReflectiveTaskDelegate(RedisCommando rcommando, Retask retask, RetaskContext provider, HandlerMethod<?> handlerMethods) {
+        Method method = handlerMethods.getMethod();
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, retask, method.getParameters());
+        return new RetaskReflectiveTaskDelegate(provider, handlerMethods.getWorkerClass(), method, paramsProducer);
     }
-
-    protected boolean isRecurring() {
-        return recurKey != null;
-    }
-
-    protected String getRecurKey() {
-        return recurKey;
-    }
-
-    protected String getAuthorityKey() {
-        return authorityKey;
-    }
-
-    protected Map<String, String> getMetadata() {
-        return this.metadata;
-    }
-
-    protected boolean hasParams() {
-        return !this.params.isEmpty();
-    }
-
-    protected Map<String, Object> getParams() {
-        return this.params;
-    }
-
 }
