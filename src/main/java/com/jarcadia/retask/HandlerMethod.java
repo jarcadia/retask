@@ -2,6 +2,7 @@ package com.jarcadia.retask;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class HandlerMethod<A extends Annotation> {
     
@@ -13,13 +14,13 @@ public class HandlerMethod<A extends Annotation> {
     private final String routingKey;
     private final String setKey;
     private final String fieldName;
-    
+    private final AtomicReference<Object> workerInstanceRef;
     
     public enum HandlerType {
     	TASK, CHANGE, INSERT, DELETE
     }
 
-    public HandlerMethod(HandlerType type, Class<?> workerClass, Method method, A annotation, Class<A> annontationClass, String routingKey, String setKey, String fieldName) {
+    protected HandlerMethod(HandlerType type, Class<?> workerClass, Method method, A annotation, Class<A> annontationClass, String routingKey, String setKey, String fieldName) {
     	this.type = type;
         this.workerClass = workerClass;
         this.method = method;
@@ -28,6 +29,7 @@ public class HandlerMethod<A extends Annotation> {
         this.routingKey = routingKey;
         this.setKey = setKey;
         this.fieldName = fieldName;
+        this.workerInstanceRef = new AtomicReference<>();
     }
     
     public HandlerType getType() {
@@ -46,7 +48,7 @@ public class HandlerMethod<A extends Annotation> {
     	return annotation;
     }
     
-    protected Class<A> getAnnontationClass() {
+    public Class<A> getAnnontationClass() {
     	return annontationClass;
     }
 
@@ -60,5 +62,16 @@ public class HandlerMethod<A extends Annotation> {
 	
 	public String getFieldName() {
 		return fieldName;
+	}
+	
+	public AtomicReference<Object> getWorkerInstance() {
+		return workerInstanceRef;
+	}
+	
+	/*
+	 * Only internal retask should set this instance, on startup
+	 */
+	protected void setWorkerInstance(Object workerInstance) {
+		this.workerInstanceRef.set(workerInstance);
 	}
 }

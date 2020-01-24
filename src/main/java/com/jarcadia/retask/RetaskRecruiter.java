@@ -3,6 +3,7 @@ package com.jarcadia.retask;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -23,7 +24,7 @@ public class RetaskRecruiter {
 
     private final Logger logger = LoggerFactory.getLogger(RetaskRecruiter.class);	
 
-	private final Set<RegistereHandlerAnnontation<?>> taskHandlerAnnontations;
+	private final Set<RegisteredHandlerAnnontation<?>> taskHandlerAnnontations;
 	private final Set<Class<?>> classes;
 	private final Set<String> packages;
 
@@ -79,7 +80,6 @@ public class RetaskRecruiter {
         this.registerDeleteHandlerAnnontation(RetaskDeleteHandler.class, 
         		(clazz, method, annontation) -> annontation.value());
         
-        
 		// Scan all packages to find candidate classes
 		for (String packageName : this.packages) {
 			Reflections reflections = new Reflections(packageName);
@@ -89,10 +89,10 @@ public class RetaskRecruiter {
 		}
 
 		// Scan all class methods to find HandlerMethods
-		final Set<HandlerMethod<?>> handlers = new HashSet<>();
+		final List<HandlerMethod<?>> handlers = new LinkedList<>();
 		for (Class<?> clazz : this.classes) {
 			for (Method method : clazz.getMethods()) {
-				for (RegistereHandlerAnnontation<?> registeredAnnontation : taskHandlerAnnontations) {
+				for (RegisteredHandlerAnnontation<?> registeredAnnontation : taskHandlerAnnontations) {
                     registeredAnnontation.check(clazz, method, handlers);
 				}
 			}
@@ -111,11 +111,10 @@ public class RetaskRecruiter {
         		.collect(Collectors.groupingBy(HandlerMethod::getAnnontationClass));
 		
 		// Output results
-		handlersByType.get(HandlerType.CHANGE).forEach(h -> logger.info("Retask recruited change handler {}.{} for changes to {}.{}",
+		handlersByType.getOrDefault(HandlerType.CHANGE, List.of()).forEach(h -> logger.info("Retask recruited change handler {}.{} for changes to {}.{}",
 				h.getWorkerClass().getName(), h.getMethod().getName(), h.getSetKey(), h.getFieldName()));
-		
 
-		return new RecruitmentResults(handlersByType, handlersByRoutingKey, handlersByAnnontationClass);
+		return new RecruitmentResults(handlers, handlersByType, handlersByRoutingKey, handlersByAnnontationClass);
 	}
 
 	@FunctionalInterface
@@ -151,23 +150,25 @@ public class RetaskRecruiter {
 		}
 	}
 	
-	private abstract class RegistereHandlerAnnontation<A extends Annotation> {
-		private final Class<A> clazz;
+	private abstract class RegisteredHandlerAnnontation<A extends Annotation> {
+
+		private final Class<A> annontationClass;
 		
-		public RegistereHandlerAnnontation(Class<A> clazz) {
-			this.clazz = clazz;
+		public RegisteredHandlerAnnontation(Class<A> clazz) {
+			this.annontationClass = clazz;
 		}
 		
-		public void check(Class<?> targetClass, Method method, Set<HandlerMethod<? extends Annotation>> set) {
-			A annontation = method.getAnnotation(clazz);
+		public void check(Class<?> targetClass, Method method, List<HandlerMethod<? extends Annotation>> set) {
+			A annontation = method.getAnnotation(annontationClass);
 			if (annontation != null) {
-				set.add(generate(targetClass, method, clazz, annontation));
+				set.add(generate(targetClass, method, annontationClass, annontation));
 			}
 		}
 		
 		protected abstract HandlerMethod<A> generate(Class<?> targetClass, Method method, Class<A> clazz, A annontation);
 	}
-	private class RegisteredTaskHandlerAnnotation<A extends Annotation> extends RegistereHandlerAnnontation<A> {
+	
+	private class RegisteredTaskHandlerAnnotation<A extends Annotation> extends RegisteredHandlerAnnontation<A> {
 
 		private final RoutingKeyFactory<A> factory;
 
@@ -183,7 +184,7 @@ public class RetaskRecruiter {
 		}
 	}
 
-	private class RegisteredChangeHandlerAnnotation<A extends Annotation> extends RegistereHandlerAnnontation<A> {
+	private class RegisteredChangeHandlerAnnotation<A extends Annotation> extends RegisteredHandlerAnnontation<A> {
 
 		private final ChangeKeyFactory<A> factory;
 
@@ -201,7 +202,7 @@ public class RetaskRecruiter {
 		}
 	}
 
-	private class RegisteredInsertHandlerAnnotation<A extends Annotation> extends RegistereHandlerAnnontation<A> {
+	private class RegisteredInsertHandlerAnnotation<A extends Annotation> extends RegisteredHandlerAnnontation<A> {
 
 		private final SetKeyFactory<A> factory;
 
@@ -218,7 +219,7 @@ public class RetaskRecruiter {
 		}
 	}
 
-	private class RegisteredDeleteHandlerAnnotation<A extends Annotation> extends RegistereHandlerAnnontation<A> {
+	private class RegisteredDeleteHandlerAnnotation<A extends Annotation> extends RegisteredHandlerAnnontation<A> {
 
 		private final SetKeyFactory<A> factory;
 

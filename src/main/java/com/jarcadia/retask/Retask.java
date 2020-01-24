@@ -70,23 +70,23 @@ public class Retask {
         return this.recruitmentResults.verifyRecruits(requestedRoutes);
     }
     
-    public <A extends Annotation> List<HandlerMethod<A>> getRecruitsByAnnontation(Class<A> annontationClass) {
+    public <A extends Annotation> List<HandlerMethod<A>> getHandlersByAnnontation(Class<A> annontationClass) {
         return this.recruitmentResults.getRecruitsFor(annontationClass);
     }
     
-    public static RetaskManager init(RedisClient redis, RedisCommando rcommando, RetaskRecruiter recruiter, RetaskContext instanceProvider) {
+    public static RetaskManager init(RedisClient redis, RedisCommando rcommando, RetaskRecruiter recruiter) {
         
         // Create internal prereqs
-        ExecutorService executor = Executors.newCachedThreadPool();
-        RetaskDao dao = new RetaskDao(rcommando);
+        final RetaskDao dao = new RetaskDao(rcommando);
 
-        final RecruitmentResults recruitmentResults = recruiter.recruit();
-
+        // Scan for recruits
+        final RecruitmentResults recruits = recruiter.recruit();
+        
         // Create public API
-        Retask retask = new Retask(dao, recruitmentResults);
+        final Retask retask = new Retask(dao, recruits);
         
         // Setup insert handlers
-        for (HandlerMethod<?> insertHandler : dedupeHandlersByRoutingKey(recruitmentResults.getRecruitsFor(HandlerType.INSERT))) {
+        for (HandlerMethod<?> insertHandler : dedupeHandlersByRoutingKey(recruits.getRecruitsFor(HandlerType.INSERT))) {
             ObjectInsertCallback callback = (setKey, id) -> {
                 Task task = Task.create(insertHandler.getRoutingKey()).param("object", Map.of("setKey", setKey, "id", id));
                 dao.submit(task);
@@ -95,7 +95,7 @@ public class Retask {
         }
 
         // Setup delete handlers
-        for (HandlerMethod<?> deleteHandler : dedupeHandlersByRoutingKey(recruitmentResults.getRecruitsFor(HandlerType.DELETE))) {
+        for (HandlerMethod<?> deleteHandler : dedupeHandlersByRoutingKey(recruits.getRecruitsFor(HandlerType.DELETE))) {
             ObjectDeleteCallback callback = (setKey, id) -> {
                 Task task = Task.create(deleteHandler.getRoutingKey()).param("id", id);
                 dao.submit(task);
@@ -104,7 +104,7 @@ public class Retask {
         }
         
         // Setup change handlers
-        for (HandlerMethod<?> changeHandler : dedupeHandlersByRoutingKey(recruitmentResults.getRecruitsFor(HandlerType.CHANGE))) {
+        for (HandlerMethod<?> changeHandler : dedupeHandlersByRoutingKey(recruits.getRecruitsFor(HandlerType.CHANGE))) {
         	 FieldChangeCallback callback = (setKey, id, version, field, before, after) -> {
                  Task task = Task.create(changeHandler.getRoutingKey()).forChangedValue(setKey, id, before, after);
                  dao.submit(task);
@@ -113,29 +113,7 @@ public class Retask {
              rcommando.registerFieldChangeCallback(changeHandler.getSetKey(), changeHandler.getFieldName(), callback);
         }
 
-        // Get handler methods by routingKey
-        Map<String, List<HandlerMethod<?>>> routes = recruitmentResults.getHandlersByRoutingKey();
-        
-        // Build delegates for each discovered route/method
-        Map<String, RetaskDelegate> routeToDelegateMap = buildTaskDelegatesForRoutes(rcommando, retask, executor, instanceProvider, routes);
-
-        // Create a routing delegator for the route > delegate map
-        RetaskDelegate router = new RetaskDelegateRouter(routeToDelegateMap);
-
-        // Create a procrastinator for handler and poller
-        RetaskProcrastinator procrastinator = new RetaskProcrastinator();
-        
-        // Create a handler that delegates to the routing delegator
-        TaskHandler handler = new RetaskDelegatingTaskHandler(dao, router, procrastinator);
-
-        // Create RetaskTaskPopper
-        RetaskTaskPopperDao taskPopperDao = new RetaskTaskPopperDao(rcommando.clone());
-        RetaskTaskPopper taskPopper = new RetaskTaskPopper(taskPopperDao, executor, handler, procrastinator);
-
-        // Create RetaskScheduledTaskPoller
-        RetaskScheduledTaskPoller scheduledTaskPoller = new RetaskScheduledTaskPoller(dao, procrastinator);
-
-        return new RetaskManager(taskPopper, scheduledTaskPoller, retask);
+        return new RetaskManager(rcommando, retask, dao, recruits);
     }
     
     /**
@@ -154,35 +132,5 @@ public class Retask {
                 .collect(Collectors.toList());
     }
 
-    private static Map<String, RetaskDelegate> buildTaskDelegatesForRoutes(RedisCommando rcommando, Retask retask, ExecutorService executor,
-            RetaskContext instanceProvider, Map<String, List<HandlerMethod<?>>> routes) {
-        Map<String, RetaskDelegate> routeToDelegateMap = new HashMap<>();
-        for (String routingKey : routes.keySet()) {
-            List<HandlerMethod<?>> workerMethods = routes.get(routingKey);
-            routeToDelegateMap.put(routingKey, createDelegateForRoute(rcommando, retask, executor, instanceProvider, workerMethods));
-        }
-        return Collections.unmodifiableMap(routeToDelegateMap);
-    }
-
-    private static RetaskDelegate createDelegateForRoute(RedisCommando rcommando, Retask retask, ExecutorService executor, RetaskContext provider, List<HandlerMethod<?>> handlerMethods) {
-        if (handlerMethods.size() == 1) {
-            return createReflectiveTaskDelegate(rcommando, retask, provider, handlerMethods.iterator().next());
-        } else {
-            return createRouteSplittingDelegate(rcommando, retask, executor, provider, handlerMethods);
-        }
-    }
-    
-    private static RetaskDelegate createRouteSplittingDelegate(RedisCommando rcommando, Retask retask,  ExecutorService executor, RetaskContext provider, List<HandlerMethod<?>> handlerMethods) {
-        List<RetaskDelegate> delegates = new LinkedList<>();
-        for (HandlerMethod<?> handlerMethod : handlerMethods) {
-            delegates.add(createReflectiveTaskDelegate(rcommando, retask, provider, handlerMethod));
-        }
-        return new RouteSplittingDelegate(executor, delegates);
-    }
-    
-    private static RetaskDelegate createReflectiveTaskDelegate(RedisCommando rcommando, Retask retask, RetaskContext provider, HandlerMethod<?> handlerMethods) {
-        Method method = handlerMethods.getMethod();
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, retask, method.getParameters());
-        return new RetaskReflectiveTaskDelegate(provider, handlerMethods.getWorkerClass(), method, paramsProducer);
-    }
+  
 }

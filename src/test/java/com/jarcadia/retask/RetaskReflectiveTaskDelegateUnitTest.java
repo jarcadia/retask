@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -18,6 +19,7 @@ import com.jarcadia.rcommando.RcObject;
 import com.jarcadia.rcommando.RcObjectMapper;
 import com.jarcadia.rcommando.RcSet;
 import com.jarcadia.rcommando.RedisCommando;
+import com.jarcadia.retask.annontations.RetaskHandler;
 import com.jarcadia.retask.annontations.RetaskParam;
 import com.jarcadia.retask.data.TestPojo;
 
@@ -36,8 +38,10 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodWithoutParametersCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithoutParameters");
+        
+        
         ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         Object returnValue = delegate.invoke("taskName", "routingKey", 1, 1, null, null, "{}", new TaskBucket());
         Assertions.assertNull(returnValue);
     }
@@ -53,7 +57,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     void delegatesToMethodWithParamsThatHaveReservedNamedCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithParamsThatHaveReservedNames", String.class, String.class, int.class, int.class);
         ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         Object returnValue = delegate.invoke("taskId", "routingKey", 2, 5, null, null, "{}", new TaskBucket());
         Assertions.assertNull(returnValue);
     }
@@ -92,7 +96,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     	
         Method method = this.getClass().getMethod("methodWithMultipleRedisObjects", RcObject.class, RcObject.class, int.class);
         ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         
         Map<String, Object> params = new HashMap<>();
         params.put("count", 42);
@@ -122,7 +126,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
 
         Method method = this.getClass().getMethod("methodWithRcSetParameters", RcSet.class, RcSet.class);
         ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         
         Object returnValue = delegate.invoke("taskId", "routingKey", 1, -1, null, null, "{}", new TaskBucket());
         Assertions.assertNull(returnValue);
@@ -143,7 +147,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     void delegatesToMethodWithJsonParametersCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithJsonParameters", String.class, int.class, List.class, Set.class, TestPojo.class);
         ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         
         Set<Integer> numSet = new HashSet<>();
         numSet.addAll(Arrays.asList(42, 44));
@@ -164,7 +168,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     void delegatesToMethodWithCollectionOfPojosCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithCollectionOfPojos", List.class);
         ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
 
         TestPojo john = new TestPojo();
         john.setName("John Doe");
@@ -186,7 +190,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     void delegatesToMethodAndReceivesReturnValueCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithReturnValue");
         ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         Object returnValue = delegate.invoke("taskName", "routingKey", 1, 1, null, null, "{}", new TaskBucket());
         Assertions.assertEquals("hello", returnValue);
     }
@@ -216,9 +220,9 @@ public class RetaskReflectiveTaskDelegateUnitTest {
 
         Method method = this.getClass().getMethod("changeHandlerMethod", RcObject.class, String.class, TestPojo.class);
         ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(c -> this, this.getClass(), method, paramsProducer);
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         
         delegate.invoke("taskName", "routingKey", 1, 1, objectMapper.writeValueAsString("hello"),
-                objectMapper.writeValueAsString(pojo), objectMapper.writeValueAsString(Map.of("object", Map.of("mapKey", "objs", "id", "abc123"))), new TaskBucket());
+                objectMapper.writeValueAsString(pojo), objectMapper.writeValueAsString(Map.of("object", Map.of("setKey", "objs", "id", "abc123"))), new TaskBucket());
     }
 }

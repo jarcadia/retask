@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * permitting, incrementing attempts and cleaning up. After necessary setup, this TaskHandler will delegate to a TaskDelegate. After
  * completion, it will handle the return value and cleanup.
  */
-public class RetaskDelegatingTaskHandler implements TaskHandler {
+public class RetaskDelegatingTaskHandler implements RawTaskHandler {
     
     private final Logger logger = LoggerFactory.getLogger(RetaskDelegatingTaskHandler.class);
     

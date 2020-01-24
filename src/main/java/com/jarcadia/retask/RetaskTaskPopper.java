@@ -22,12 +22,12 @@ class RetaskTaskPopper implements Runnable, Closeable {
 
     private final RetaskTaskPopperDao dao;
     private final ExecutorService executor;
-    private final TaskHandler handler;
+    private final RawTaskHandler handler;
     private final Thread thread;
     private final CompletableFuture<Void> closedFuture;
     private final RetaskProcrastinator procrastinator;
     
-    public RetaskTaskPopper(RetaskTaskPopperDao dao, ExecutorService executor, TaskHandler handler, RetaskProcrastinator procrastinator) {
+    public RetaskTaskPopper(RetaskTaskPopperDao dao, ExecutorService executor, RawTaskHandler handler, RetaskProcrastinator procrastinator) {
         this.dao = dao;
         this.executor = executor;
         this.handler = handler;

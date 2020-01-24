@@ -99,7 +99,7 @@ public class RetaskPopperUnitTest {
         // Setup TaskHandler
         CompletableFuture<String> taskFuture = new CompletableFuture<>();
         CompletableFuture<Map<String, String>> metadataFuture = new CompletableFuture<>();
-        TaskHandler handler = (t, m) -> {
+        RawTaskHandler handler = (t, m) -> {
             taskFuture.complete(t);
             metadataFuture.complete(m); 
             throw new RuntimeException("Bad things happened");
@@ -133,7 +133,7 @@ public class RetaskPopperUnitTest {
         // Setup TaskHandler
         CompletableFuture<String> taskFuture = new CompletableFuture<>();
         CompletableFuture<Map<String, String>> metadataFuture = new CompletableFuture<>();
-        TaskHandler handler = (t, m) -> {
+        RawTaskHandler handler = (t, m) -> {
             taskFuture.complete(t);
             metadataFuture.complete(m); 
         };
