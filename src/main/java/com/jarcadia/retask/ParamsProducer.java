@@ -5,9 +5,6 @@ import java.lang.reflect.Parameter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -38,28 +35,23 @@ class ParamsProducer {
     	this.rcommando = rcommando;
         this.retask = retask;
         this.objectMapper = rcommando.getObjectMapper();
-        this.retaskParamIndex = discoverTypedParamIndex(parameters, Retask.class);
-        this.taskBucketParamIndex = discoverTypedParamIndex(parameters, TaskBucket.class);
-        this.taskIdParamIndex = discoverNamedParamIndex(parameters, "taskId");
-        this.routingKeyParamIndex = discoverNamedParamIndex(parameters, "routingKey");
-        this.attemptParamIndex = discoverNamedParamIndex(parameters, "attempt");
-        this.permitParamIndex = discoverNamedParamIndex(parameters, "permit");
-        this.beforeParam = this.discoverChangedValueParam(parameters, "before");
-        this.afterParam = this.discoverChangedValueParam(parameters, "after");
-        this.rcSetParamIndexMap = this.discoverRcSetParameterIndexes(parameters);
+        
+        // Create array to track which params are accounted for
+        boolean[] accountedFor = new boolean[numParams];
+        
+        // Discover parameters
+        this.retaskParamIndex = discoverTypedParamIndex(parameters, Retask.class, accountedFor);
+        this.taskBucketParamIndex = discoverTypedParamIndex(parameters, TaskBucket.class, accountedFor);
+        this.taskIdParamIndex = discoverNamedParamIndex(parameters, "taskId", accountedFor);
+        this.routingKeyParamIndex = discoverNamedParamIndex(parameters, "routingKey", accountedFor);
+        this.attemptParamIndex = discoverNamedParamIndex(parameters, "attempt", accountedFor);
+        this.permitParamIndex = discoverNamedParamIndex(parameters, "permit", accountedFor);
+        this.beforeParam = this.discoverChangedValueParam(parameters, "before", accountedFor);
+        this.afterParam = this.discoverChangedValueParam(parameters, "after", accountedFor);
+        this.rcSetParamIndexMap = this.discoverRcSetParameterIndexes(parameters, accountedFor);
 
-        // Figure out which parameters indexes are accounted for after all predefined parameters have been discovered
-        Set<Integer> accountedForParamIndexes = Stream.concat(rcSetParamIndexMap.keySet().stream(),
-        		Stream.of(retaskParamIndex, taskBucketParamIndex, taskIdParamIndex,
-        				routingKeyParamIndex, attemptParamIndex, permitParamIndex,
-        				beforeParam == null ? -1 : beforeParam.getIndex(),
-        				afterParam == null ? -1 : afterParam.getIndex()))
-        		.filter(i -> i >= 0)
-        		.distinct()
-        		.collect(Collectors.toSet());
-
-        // The rest of the method parameters will come from the task's JSON parameters
-        this.jsonParamsIndexMap = discoverJsonParameterIndexes(parameters, accountedForParamIndexes);
+        // The remaining method parameters will come from the task's JSON parameters
+        this.jsonParamsIndexMap = discoverJsonParameterIndexes(parameters, accountedFor);
     }
 
     protected Object[] produceParams(String taskId, String routingKey, int attempt, int permit, String before, String after, String jsonParams, TaskBucket taskBucket) throws RetaskParamsException {
@@ -125,27 +117,30 @@ class ParamsProducer {
         return params;
     }
 
-    private int discoverTypedParamIndex(Parameter[] parameters, Class<?> clazz) {
+    private int discoverTypedParamIndex(Parameter[] parameters, Class<?> clazz, boolean[] accountedFor) {
         for (int i=0; i<parameters.length; i++) {
-        	if (clazz.equals(parameters[i].getType())) {
+        	if (!accountedFor[i] && clazz.equals(parameters[i].getType())) {
+            	accountedFor[i] = true;
         		return i;
         	}
         }
         return -1;
     }
 
-    private int discoverNamedParamIndex(Parameter[] parameters, String name) {
+    private int discoverNamedParamIndex(Parameter[] parameters, String name, boolean[] accountedFor) {
         for (int i=0; i<parameters.length; i++) {
-            if (matches(parameters[i], name)) {
+            if (!accountedFor[i] && matches(parameters[i], name)) {
+            	accountedFor[i] = true;
                 return i;
             }
         }
         return -1;
     }
     
-    private ChangedValueParam discoverChangedValueParam(Parameter[] parameters, String name) {
+    private ChangedValueParam discoverChangedValueParam(Parameter[] parameters, String name, boolean[] accountedFor) {
         for (int i=0; i<parameters.length; i++) {
-            if (matches(parameters[i], name)) {
+            if (!accountedFor[i] && matches(parameters[i], name)) {
+            	accountedFor[i] = true;
                 return new ChangedValueParam(i, createJavaType(parameters[i]));
             }
         }
@@ -164,28 +159,25 @@ class ParamsProducer {
         return false;
     }
     
-    private Map<Integer, RcSet> discoverRcSetParameterIndexes(Parameter[] parameters) {
+    private Map<Integer, RcSet> discoverRcSetParameterIndexes(Parameter[] parameters, boolean[] accountedFor) {
     	Map<Integer, RcSet> map = new HashMap<>();
         for (int i=0; i<parameters.length; i++) {
-        	if (RcSet.class.equals(parameters[i].getType())) {
+        	if (!accountedFor[i] && RcSet.class.equals(parameters[i].getType())) {
+        		accountedFor[i] = true;
         		map.put(i, rcommando.getSetOf(getName(parameters[i])));
         	}
         }
         return map;
     }
     
-    private Map<Integer, TypedParam> discoverJsonParameterIndexes(Parameter[] parameters, Set<Integer> accountedForParamIndexes) {
-        if (accountedForParamIndexes.size() == parameters.length) {
-        	return Map.of();
-        } else {
-            Map<Integer, TypedParam> result = new HashMap<>();
-            for (int i=0; i<parameters.length; i++) {
-                if (!accountedForParamIndexes.contains(i)) {
-                    result.put(i, createTypedParameter(parameters[i]));
-                }
+    private Map<Integer, TypedParam> discoverJsonParameterIndexes(Parameter[] parameters, boolean[] accountedFor) {
+        Map<Integer, TypedParam> result = new HashMap<>();
+        for (int i=0; i<parameters.length; i++) {
+        	if (!accountedFor[i]) {
+                result.put(i, createTypedParameter(parameters[i]));
             }
-            return result;
         }
+        return result;
     }
     
     private TypedParam createTypedParameter(Parameter parameter) {

@@ -16,7 +16,7 @@ class RecruitmentResults {
     private final Map<String, List<HandlerMethod<?>>> handlersByRoutingKey;
 	private final Map<Class<?>, List<HandlerMethod<?>>> handlersByAnnontationClass;
 
-	public RecruitmentResults( List<HandlerMethod<?>> handlers,
+	public RecruitmentResults(List<HandlerMethod<?>> handlers,
 			Map<HandlerType, List<HandlerMethod<?>>> handlersByType,
 			Map<String, List<HandlerMethod<?>>> handlersByRoutingKey,
 			Map<Class<?>, List<HandlerMethod<?>>> handlersByAnnontationClass) {
@@ -50,17 +50,4 @@ class RecruitmentResults {
         		.map(handler -> ((HandlerMethod<A>) handler))
         		.collect(Collectors.toList());
 	}
-
-	
-//	protected Set<String> getInsertKeys() {
-//		return insertKeys;
-//	}
-//
-//	protected Set<String> getDeleteKeys() {
-//		return deleteKeys;
-//	}
-//
-//	protected Map<String, Set<String>> getChangeKeys() {
-//		return changeKeys;
-//	}
 }

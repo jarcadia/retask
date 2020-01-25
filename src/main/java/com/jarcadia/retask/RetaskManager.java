@@ -14,9 +14,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.jarcadia.rcommando.RedisCommando;
 
 public class RetaskManager {
+	
+    private final Logger logger = LoggerFactory.getLogger(RetaskManager.class);
 
 	private final RedisCommando rcommando;
     private final Retask retask;
@@ -150,12 +155,16 @@ public class RetaskManager {
     		return obj;
     	} else {
             for (InstanceProvider provider : instanceProviders) {
-                obj = provider.getInstance(clazz);
-                if (obj != null) {
-                    return obj;
-                }
+            	try {
+                    obj = provider.getInstance(clazz);
+                    if (obj != null) {
+                        return obj;
+                    }
+            	} catch (Exception ex) {
+            		logger.warn("Instance provider threw exception", ex);
+            	}
             }
     	}
-    	return null;
+    	throw new RetaskException("No instance provided for class " + clazz.getName());
     }
 }
