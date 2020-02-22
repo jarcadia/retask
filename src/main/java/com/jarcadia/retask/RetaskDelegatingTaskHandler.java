@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jarcadia.retask.RetaskRepository.RecurResult;
 
 /**
  * This class is responsible for performing before/after actions related to running a task. This includes aligning to timestamps,
@@ -19,11 +20,11 @@ public class RetaskDelegatingTaskHandler implements RawTaskHandler {
     
     private final Logger logger = LoggerFactory.getLogger(RetaskDelegatingTaskHandler.class);
     
-    private final RetaskDao dao;
+    private final RetaskRepository dao;
     private final RetaskDelegate delegate;
     private final RetaskProcrastinator procrastinator;
 
-    public RetaskDelegatingTaskHandler(RetaskDao dao, RetaskDelegate delegate, RetaskProcrastinator procrastinator) {
+    public RetaskDelegatingTaskHandler(RetaskRepository dao, RetaskDelegate delegate, RetaskProcrastinator procrastinator) {
         this.dao = dao;
         this.delegate = delegate;
         this.procrastinator = procrastinator;
@@ -53,10 +54,12 @@ public class RetaskDelegatingTaskHandler implements RawTaskHandler {
             String authorityKey = metadata.get("authorityKey");
             
             // Schedule recurrence
-            boolean hasAuthority = dao.recur(recurKey, taskId, authorityKey, targetTimestamp, Long.parseLong(metadata.get("recurInterval")));
-            if (!hasAuthority) {
-                // Task no longer has authority, return immediately
-                logger.info("Task {} lacks authority", taskId);
+            RecurResult recurResult = dao.recur(recurKey, taskId, authorityKey, targetTimestamp, Long.parseLong(metadata.get("recurInterval")));
+            if (recurResult == RecurResult.KEY_LOCKED) {
+                logger.info("Task {} was skipped due to locked recurKey {}", taskId, recurKey);
+                return;
+            } else if (recurResult ==RecurResult.KEY_LACKS_AUTHORITY) { 
+                logger.info("Task {} lacks authority for recurKey {}", taskId, recurKey);
                 return;
             }
         }
@@ -78,32 +81,29 @@ public class RetaskDelegatingTaskHandler implements RawTaskHandler {
                 }
             }
 
-
-            // Invoke handler
             TaskBucket bucket = new TaskBucket();
             Object result = delegate.invoke(taskId, routingKey, attempt, permit, before, after, params, bucket);
             
-            // Publish response if requested
             if (publishResponse) {
             	dao.publishResponse(taskId, result);
             }
             
-            // Process bucketed tasks
             for (Task task : bucket.getTasks()) {
             	dao.submit(task);
             }
 
-            // Process result object
             this.handleDelegateReturnValue(result);
-        } catch (RetaskRetryException ex) {
+        } catch (TaskRetryException ex) {
             dao.retry(taskId, ex.getDuration());
         } finally {
-            // Release acquired permit
             if (permitKey != null && permit != -1) {
                 dao.releasePermit(permitKey, permit);
             }
+            
+            if (recurKey != null) {
+            	dao.unlockRecurKey(recurKey);
+            }
 
-            // Delete task metadata
             if (clearParams) {
                 dao.clearParams(taskId);
             }

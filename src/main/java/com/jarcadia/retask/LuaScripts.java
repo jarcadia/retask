@@ -50,9 +50,9 @@ class LuaScripts {
 
 	protected static String RECUR_TASK = """
         -- Recur a task
-        -- Keys: taskQueue scheduledTaskZSet recurLockHashKey recurAuthorityHashKey recurKey taskId nextTaskId
-        -- Args: targetTimestamp, nextTimestamp, authorityKey
-        -- Returns: true or false
+        -- Keys: taskQueue scheduledTaskZSet recurLockHashKey recurAuthorityHashKey taskId nextTaskId
+        -- Args: recurKey, targetTimestamp, nextTimestamp, authorityKey
+        -- Returns: 0 if success, 1 if locked, 2 if lacks authority
 
         local masterAuthKey = redis.call('hget', KEYS[4], ARGV[1])
 
@@ -64,16 +64,20 @@ class LuaScripts {
             redis.call('hdel', KEYS[6], 'dependents');
             redis.call('zadd', KEYS[2], ARGV[3], KEYS[6])
              
-            -- Update lock
-            redis.call('hset', KEYS[3], ARGV[1], "1");
+            -- Try set lock
+            local inserted = redis.call('hsetnx', KEYS[3], ARGV[1], "1");
+            if (inserted == 1) then
+            	return 0;
+            else 
+                -- this task did not acquire lock
+                redis.call('del', KEYS[5]);
+                return 1;
+            end;
 
-            return true;
-
-        --redis.call('hset', KEYS[4], ARGV[1], ARGV[1]);
         else 
             -- this task is no longer the authority for this recurKey
             redis.call('del', KEYS[5]);
-            return false;
+            return 2;
         end
 	""";
 

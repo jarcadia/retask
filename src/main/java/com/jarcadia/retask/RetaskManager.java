@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.jarcadia.rcommando.RedisCommando;
+import com.jarcadia.rcommando.proxy.DaoProxy;
 
 public class RetaskManager {
 	
@@ -25,8 +26,8 @@ public class RetaskManager {
 
 	private final RedisCommando rcommando;
     private final Retask retask;
-    private final RetaskDao dao;
-    private final RecruitmentResults recruits;
+    private final RetaskRepository dao;
+    private final RecruitmentResults handlers;
     private final ExecutorService executor;
     private final RetaskProcrastinator procrastinator;
     private final Set<InstanceProvider> instanceProviders;
@@ -36,18 +37,20 @@ public class RetaskManager {
     private final RetaskTaskPopper taskPopper;
     private final RetaskScheduledTaskPoller scheduledTaskPoller;
     
-    public RetaskManager(RedisCommando rcommando, Retask retask, RetaskDao dao, RecruitmentResults recruits) {
+    public RetaskManager(RedisCommando rcommando, Retask retask, RetaskRepository dao, RecruitmentResults recruits) {
     	this.rcommando = rcommando;
     	this.retask = retask;
     	this.dao = dao;
-    	this.recruits = recruits;
+    	this.handlers = recruits;
     	this.executor = Executors.newCachedThreadPool();
     	this.procrastinator = new RetaskProcrastinator();
     	this.instanceProviders = ConcurrentHashMap.newKeySet();
     	this.instanceMap = new ConcurrentHashMap<>();
     	
+    	this.addInstance(new ExternalSetWorker());
+    	
    	 	// Get handler methods by routingKey
-        Map<String, List<HandlerMethod<?>>> routes = recruits.getHandlersByRoutingKey();
+        Map<String, List<HandlerMethod>> routes = recruits.getHandlersByRoutingKey();
 
         // Build delegates for each discovered route/method
         Map<String, RetaskDelegate> routeToDelegateMap = buildTaskDelegatesForRoutes(routes);
@@ -66,14 +69,6 @@ public class RetaskManager {
         this.scheduledTaskPoller = new RetaskScheduledTaskPoller(dao, procrastinator);
     }
 
-    public Set<String> verifyRecruits(Collection<String> requestedRoutes) {
-        return this.recruits.verifyRecruits(requestedRoutes);
-    }
-    
-    public <A extends Annotation> List<HandlerMethod<A>> getHandlersByAnnontation(Class<A> annontationClass) {
-        return this.recruits.getRecruitsFor(annontationClass);
-    }
-    
     public void addInstanceProvider(InstanceProvider provider) {
     	this.instanceProviders.add(provider);
     }
@@ -92,6 +87,18 @@ public class RetaskManager {
     	this.instanceMap.put(clazz, worker);
     }
 
+    public Set<String> verifyRoutes(Collection<String> routes) {
+        return this.handlers.verifyRoutes(routes);
+    }
+    
+    public <A extends Annotation> List<HandlerMethod> getHandlersByAnnontation(Class<A> annontationClass) {
+        return this.handlers.getHandlers(annontationClass);
+    }
+    
+    public Set<Class<? extends DaoProxy>> getDaoProxies() {
+    	return this.handlers.getProxyClasses();
+    }
+
     public void start(RetaskStartupCallback callback) {
     	this.start();
     	callback.onStartup(retask);
@@ -103,7 +110,7 @@ public class RetaskManager {
     }
 
     public void start() {
-    	for (HandlerMethod<?> handler : recruits.getTaskHandlers()) {
+    	for (HandlerMethod handler : handlers.getHandlers()) {
     		Object instance = getWorkerInstance(handler.getWorkerClass());
     		handler.setWorkerInstance(instance);
     	}
@@ -118,16 +125,16 @@ public class RetaskManager {
         this.scheduledTaskPoller.join(timeout, unit);
     }
     
-    private Map<String, RetaskDelegate> buildTaskDelegatesForRoutes(Map<String, List<HandlerMethod<?>>> routes) {
+    private Map<String, RetaskDelegate> buildTaskDelegatesForRoutes(Map<String, List<HandlerMethod>> routes) {
         Map<String, RetaskDelegate> routeToDelegateMap = new HashMap<>();
         for (String routingKey : routes.keySet()) {
-            List<HandlerMethod<?>> workerMethods = routes.get(routingKey);
+            List<HandlerMethod> workerMethods = routes.get(routingKey);
             routeToDelegateMap.put(routingKey, createDelegateForRoute(workerMethods));
         }
         return Map.copyOf(routeToDelegateMap);
     }
 
-    private RetaskDelegate createDelegateForRoute(List<HandlerMethod<?>> handlerMethods) {
+    private RetaskDelegate createDelegateForRoute(List<HandlerMethod> handlerMethods) {
         if (handlerMethods.size() == 1) {
             return createReflectiveTaskDelegate(handlerMethods.iterator().next());
         } else {
@@ -135,17 +142,17 @@ public class RetaskManager {
         }
     }
     
-    private RetaskDelegate createRouteSplittingDelegate(List<HandlerMethod<?>> handlerMethods) {
+    private RetaskDelegate createRouteSplittingDelegate(List<HandlerMethod> handlerMethods) {
         List<RetaskDelegate> delegates = new LinkedList<>();
-        for (HandlerMethod<?> handlerMethod : handlerMethods) {
+        for (HandlerMethod handlerMethod : handlerMethods) {
             delegates.add(createReflectiveTaskDelegate(handlerMethod));
         }
         return new RouteSplittingDelegate(executor, delegates);
     }
     
-    private RetaskDelegate createReflectiveTaskDelegate(HandlerMethod<?> handlerMethod) {
+    private RetaskDelegate createReflectiveTaskDelegate(HandlerMethod handlerMethod) {
         Method method = handlerMethod.getMethod();
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, retask, method.getParameters());
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, retask, method.getParameters(), handlers.getProxyClasses());
         return new RetaskReflectiveTaskDelegate(handlerMethod.getWorkerInstance(), handlerMethod.getMethod(), paramsProducer);
     }
     

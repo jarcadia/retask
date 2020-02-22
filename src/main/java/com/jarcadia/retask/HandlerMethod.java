@@ -4,13 +4,13 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class HandlerMethod<A extends Annotation> {
+public class HandlerMethod {
     
 	private final HandlerType type;
     private final Class<?> workerClass;
     private final Method method;
-    private final A annotation;
-    private final Class<A> annontationClass;
+    private final Annotation annotation;
+    private final Class<? extends Annotation> annontationClass;
     private final String routingKey;
     private final String setKey;
     private final String fieldName;
@@ -20,7 +20,8 @@ public class HandlerMethod<A extends Annotation> {
     	TASK, CHANGE, INSERT, DELETE
     }
 
-    protected HandlerMethod(HandlerType type, Class<?> workerClass, Method method, A annotation, Class<A> annontationClass, String routingKey, String setKey, String fieldName) {
+    protected HandlerMethod(HandlerType type, Class<?> workerClass, Method method, Annotation annotation,
+    		Class<? extends Annotation> annontationClass, String routingKey, String setKey, String fieldName) {
     	this.type = type;
         this.workerClass = workerClass;
         this.method = method;
@@ -44,11 +45,11 @@ public class HandlerMethod<A extends Annotation> {
         return method;
     }
     
-    public A getAnnontation() {
+    public Annotation getAnnontation() {
     	return annotation;
     }
     
-    public Class<A> getAnnontationClass() {
+    public Class<? extends Annotation> getAnnontationClass() {
     	return annontationClass;
     }
 

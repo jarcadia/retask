@@ -4,6 +4,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -14,25 +15,28 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jarcadia.rcommando.RcObject;
-import com.jarcadia.rcommando.RcObjectMapper;
-import com.jarcadia.rcommando.RcSet;
+import com.fasterxml.jackson.databind.JavaType;
+import com.jarcadia.rcommando.Dao;
+import com.jarcadia.rcommando.DaoSet;
+import com.jarcadia.rcommando.DaoValue;
+import com.jarcadia.rcommando.DaoValues;
 import com.jarcadia.rcommando.RedisCommando;
-import com.jarcadia.retask.annontations.RetaskHandler;
+import com.jarcadia.rcommando.RedisCommandoObjectMapper;
+import com.jarcadia.rcommando.proxy.DaoProxy;
 import com.jarcadia.retask.annontations.RetaskParam;
 import com.jarcadia.retask.data.TestPojo;
 
 public class RetaskReflectiveTaskDelegateUnitTest {
     
     static RedisCommando rcommando = Mockito.mock(RedisCommando.class);
-    static ObjectMapper objectMapper = new RcObjectMapper(rcommando);
+    static RedisCommandoObjectMapper objectMapper = new RedisCommandoObjectMapper(rcommando);
 
     public void methodWithoutParameters() { }
     
     @BeforeAll
     public static void setup() {
-    	Mockito.when(rcommando.getObjectMapper()).thenReturn(new RcObjectMapper(rcommando));
+    	objectMapper.registerProxyClass(TestProxy.class);
+    	Mockito.when(rcommando.getObjectMapper()).thenReturn(objectMapper);
     }
 
     @Test
@@ -40,7 +44,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
         Method method = this.getClass().getMethod("methodWithoutParameters");
         
         
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of());
         RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         Object returnValue = delegate.invoke("taskName", "routingKey", 1, 1, null, null, "{}", new TaskBucket());
         Assertions.assertNull(returnValue);
@@ -56,13 +60,13 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodWithParamsThatHaveReservedNamedCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithParamsThatHaveReservedNames", String.class, String.class, int.class, int.class);
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of());
         RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         Object returnValue = delegate.invoke("taskId", "routingKey", 2, 5, null, null, "{}", new TaskBucket());
         Assertions.assertNull(returnValue);
     }
 
-    public void methodWithMultipleRedisObjects(RcObject book, @RetaskParam("car") RcObject theCar, int count) {
+    public void methodWithMultipleRedisObjects(Dao book, @RetaskParam("car") Dao theCar, int count) {
         Assertions.assertNotNull(book);
         Assertions.assertNotNull(theCar);
         Assertions.assertEquals("books", book.getSetKey());
@@ -75,27 +79,27 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegateToMethodWithMultipleRedisObjectsProperly() throws Throwable {
     	// Setup mocks
-    	RcObject bookMock = Mockito.mock(RcObject.class);
+    	Dao bookMock = Mockito.mock(Dao.class);
         Mockito.when(bookMock.getSetKey()).thenReturn("books");
         Mockito.when(bookMock.getId()).thenReturn("book1");
 
-    	RcSet booksMapMock = Mockito.mock(RcSet.class);
+    	DaoSet booksMapMock = Mockito.mock(DaoSet.class);
     	Mockito.when(booksMapMock.size()).thenReturn(1L);
     	Mockito.when(booksMapMock.get("book1")).thenReturn(bookMock);
     	
-    	RcObject carMock = Mockito.mock(RcObject.class);
+    	Dao carMock = Mockito.mock(Dao.class);
         Mockito.when(carMock.getSetKey()).thenReturn("cars");
         Mockito.when(carMock.getId()).thenReturn("car1");
 
-    	RcSet carsMapMock = Mockito.mock(RcSet.class);
+    	DaoSet carsMapMock = Mockito.mock(DaoSet.class);
     	Mockito.when(carsMapMock.size()).thenReturn(1L);
     	Mockito.when(carsMapMock.get("car1")).thenReturn(carMock);
     	
         Mockito.when(rcommando.getSetOf("books")).thenReturn(booksMapMock);
         Mockito.when(rcommando.getSetOf("cars")).thenReturn(carsMapMock);
     	
-        Method method = this.getClass().getMethod("methodWithMultipleRedisObjects", RcObject.class, RcObject.class, int.class);
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
+        Method method = this.getClass().getMethod("methodWithMultipleRedisObjects", Dao.class, Dao.class, int.class);
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of());
         RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         
         Map<String, Object> params = new HashMap<>();
@@ -106,32 +110,6 @@ public class RetaskReflectiveTaskDelegateUnitTest {
         delegate.invoke("taskName", "routingKey", 1, 1, null, null, objectMapper.writeValueAsString(params), new TaskBucket());
     }
     
-    
-    public void methodWithRcSetParameters(@RetaskParam("cars") RcSet carsMap, RcSet books) {
-        Assertions.assertEquals(carsMap.size(), 5);
-        Assertions.assertEquals(books.size(), 10);
-    }
-
-    @Test
-    void delegatesToMethodWithRcSetParametersCorrectly() throws Throwable {
-        // Setup mocks
-        RcSet carsMapMock = Mockito.mock(RcSet.class);
-        Mockito.when(carsMapMock.size()).thenReturn(5L);
-
-        RcSet booksMapMock = Mockito.mock(RcSet.class);
-        Mockito.when(booksMapMock.size()).thenReturn(10L);
-
-        Mockito.when(rcommando.getSetOf("cars")).thenReturn(carsMapMock);
-        Mockito.when(rcommando.getSetOf("books")).thenReturn(booksMapMock);
-
-        Method method = this.getClass().getMethod("methodWithRcSetParameters", RcSet.class, RcSet.class);
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
-        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
-        
-        Object returnValue = delegate.invoke("taskId", "routingKey", 1, -1, null, null, "{}", new TaskBucket());
-        Assertions.assertNull(returnValue);
-    }
-
     public void methodWithJsonParameters(String str, int number, List<String> strList, Set<Number> numSet, TestPojo pojo) {
         Assertions.assertEquals("hello", str);
         Assertions.assertEquals(42, number);
@@ -146,7 +124,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodWithJsonParametersCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithJsonParameters", String.class, int.class, List.class, Set.class, TestPojo.class);
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of());
         RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         
         Set<Integer> numSet = new HashSet<>();
@@ -167,7 +145,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodWithCollectionOfPojosCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithCollectionOfPojos", List.class);
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of());
         RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
 
         TestPojo john = new TestPojo();
@@ -189,13 +167,13 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     @Test
     void delegatesToMethodAndReceivesReturnValueCorrectly() throws Throwable {
         Method method = this.getClass().getMethod("methodWithReturnValue");
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of());
         RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         Object returnValue = delegate.invoke("taskName", "routingKey", 1, 1, null, null, "{}", new TaskBucket());
         Assertions.assertEquals("hello", returnValue);
     }
 
-    public void changeHandlerMethod(RcObject object, String before, @RetaskParam("after") TestPojo pojo) {
+    public void changeHandlerMethod(Dao object, String before, @RetaskParam("after") TestPojo pojo) {
         Assertions.assertEquals("objs", object.getSetKey());
         Assertions.assertEquals("abc123", object.getId());
         Assertions.assertEquals("hello", before);
@@ -209,20 +187,108 @@ public class RetaskReflectiveTaskDelegateUnitTest {
         pojo.setName("John Doe");
         pojo.setAge(33);
         
-        RcObject objMock = Mockito.mock(RcObject.class);
+        Dao objMock = Mockito.mock(Dao.class);
         Mockito.when(objMock.getSetKey()).thenReturn("objs");
         Mockito.when(objMock.getId()).thenReturn("abc123");
 
-        RcSet mapMock = Mockito.mock(RcSet.class);
+        DaoSet mapMock = Mockito.mock(DaoSet.class);
         Mockito.when(mapMock.get("abc123")).thenReturn(objMock);
 
         Mockito.when(rcommando.getSetOf("objs")).thenReturn(mapMock);
 
-        Method method = this.getClass().getMethod("changeHandlerMethod", RcObject.class, String.class, TestPojo.class);
-        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters());
+        Method method = this.getClass().getMethod("changeHandlerMethod", Dao.class, String.class, TestPojo.class);
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of());
         RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
         
         delegate.invoke("taskName", "routingKey", 1, 1, objectMapper.writeValueAsString("hello"),
-                objectMapper.writeValueAsString(pojo), objectMapper.writeValueAsString(Map.of("object", Map.of("setKey", "objs", "id", "abc123"))), new TaskBucket());
+                objectMapper.writeValueAsString(pojo), objectMapper.writeValueAsString(Map.of("object", "objs:abc123")), new TaskBucket());
+    }
+    
+    
+    
+    
+    @Test
+    void delegatesToChangeHandlerMethodUsingLenientMatchingCorrectly() throws Throwable {
+        TestPojo pojo = new TestPojo();
+        pojo.setName("John Doe");
+        pojo.setAge(33);
+        
+        Dao objMock = Mockito.mock(Dao.class);
+        Mockito.when(objMock.getSetKey()).thenReturn("objs");
+        Mockito.when(objMock.getId()).thenReturn("abc123");
+
+        DaoSet mapMock = Mockito.mock(DaoSet.class);
+        Mockito.when(mapMock.get("abc123")).thenReturn(objMock);
+
+        Mockito.when(rcommando.getSetOf("objs")).thenReturn(mapMock);
+
+        Method method = this.getClass().getMethod("changeHandlerMethod", Dao.class, String.class, TestPojo.class);
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of());
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
+        
+        delegate.invoke("taskName", "routingKey", 1, 1, objectMapper.writeValueAsString("hello"),
+                objectMapper.writeValueAsString(pojo), objectMapper.writeValueAsString(Map.of("random", "objs:abc123")), new TaskBucket());
+    }
+    
+    
+    
+    
+    
+    
+    
+    
+    public interface TestProxy extends DaoProxy {
+    	
+    	public String getName();
+    	public int getAge();
+
+    }
+    
+    public void methodWithProxy(TestProxy object) {
+    	Assertions.assertEquals("John Doe", object.getName());
+    	Assertions.assertEquals(23, object.getAge());
+    }
+
+    @Test
+    void delegatesToMethodWithProxy() throws Throwable {
+    	
+    	JavaType stringType = objectMapper.getTypeFactory().constructType(String.class);
+    	JavaType intType = objectMapper.getTypeFactory().constructType(Integer.class);
+    	
+    	DaoValue nameMock = Mockito.mock(DaoValue.class);
+    	Mockito.when(nameMock.as(stringType)).thenReturn("John Doe");
+
+    	DaoValue ageMock = Mockito.mock(DaoValue.class);
+    	Mockito.when(ageMock.as(intType)).thenReturn(23);
+
+    	DaoValues valuesMock = setupValuesMock(nameMock, ageMock);
+
+        Dao objMock = Mockito.mock(Dao.class);
+        Mockito.when(objMock.getSetKey()).thenReturn("objs");
+        Mockito.when(objMock.getId()).thenReturn("abc123");
+        Mockito.when(objMock.get(new String[] {"name", "age"})).thenReturn(valuesMock);
+
+        DaoSet mapMock = Mockito.mock(DaoSet.class);
+        Mockito.when(mapMock.get("abc123")).thenReturn(objMock);
+        Mockito.when(rcommando.getSetOf("objs")).thenReturn(mapMock);
+        
+        TestProxy mockProxy = Mockito.mock(TestProxy.class);
+        Mockito.when(mockProxy.getName()).thenReturn("John Doe");
+        Mockito.when(mockProxy.getAge()).thenReturn(23);
+        Mockito.when(objMock.as(TestProxy.class)).thenReturn(mockProxy);
+        
+        Method method = this.getClass().getMethod("methodWithProxy", TestProxy.class);
+        ParamsProducer paramsProducer = new ParamsProducer(rcommando, Mockito.mock(Retask.class), method.getParameters(), Set.of(TestProxy.class));
+        RetaskReflectiveTaskDelegate delegate = new RetaskReflectiveTaskDelegate(new AtomicReference<>(this), method, paramsProducer);
+        
+        delegate.invoke("taskName", "routingKey", 1, 1, null, null,
+        		objectMapper.writeValueAsString(Map.of("object", "objs:abc123")), new TaskBucket());
+    }
+    
+    private DaoValues setupValuesMock(DaoValue... values) {
+    	DaoValues valuesMock = Mockito.mock(DaoValues.class);
+    	Iterator<DaoValue> iter = List.of(values).iterator();
+    	Mockito.when(valuesMock.next()).thenAnswer( i -> iter.next());
+    	return valuesMock;
     }
 }

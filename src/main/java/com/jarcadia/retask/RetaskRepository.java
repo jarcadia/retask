@@ -14,18 +14,18 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jarcadia.rcommando.RedisCommando;
-import com.jarcadia.rcommando.RedisEval;
+import com.jarcadia.rcommando.Eval;
 
 
-class RetaskDao {
+class RetaskRepository {
     
-    private final Logger logger = LoggerFactory.getLogger(RetaskDao.class);
+    private final Logger logger = LoggerFactory.getLogger(RetaskRepository.class);
     
     private final RedisCommando rcommando;
     private final ObjectMapper objectMapper;
     private final TaskResponseListener responseListener;
     
-    public RetaskDao(RedisCommando rcommando) {
+    public RetaskRepository(RedisCommando rcommando) {
         this.rcommando = rcommando;
         this.objectMapper = rcommando.getObjectMapper();
         this.responseListener = new TaskResponseListener(rcommando);
@@ -39,7 +39,7 @@ class RetaskDao {
     }
     
     private String submitTask(Task task) {
-    	RedisEval eval = rcommando.eval()
+    	Eval eval = rcommando.eval()
     			.cachedScript(LuaScripts.SUBMIT_TASK)
     			.addKeys(Key.TASKS, Key.SCHEDULED, Key.RECUR_AUTH_KEY, task.getId());
     	for (Entry<String, String> entry : task.getMetadata().entrySet()) {
@@ -76,8 +76,8 @@ class RetaskDao {
             .addArg(System.currentTimeMillis() + millis)
             .returnStatus();
     }
-
-    protected boolean recur(String recurKey, String taskKey, String authorityKey, long currentTargetTimestamp, long recurInterval) {
+    
+    protected RecurResult recur(String recurKey, String taskKey, String authorityKey, long currentTargetTimestamp, long recurInterval) {
         long now = System.currentTimeMillis();
         long nextTimestamp = currentTargetTimestamp + recurInterval;
         if (nextTimestamp < now) {
@@ -86,13 +86,25 @@ class RetaskDao {
             nextTimestamp+= skip * recurInterval;
         }
         String nextId = UUID.randomUUID().toString();
-        boolean authority = rcommando.eval()
+        int result = rcommando.eval()
                 .cachedScript(LuaScripts.RECUR_TASK)
                 .addKeys(Key.TASKS, Key.SCHEDULED, Key.RECUR_LOCK_KEY, Key.RECUR_AUTH_KEY, taskKey, nextId)
                 .addArgs(recurKey, String.valueOf(currentTargetTimestamp), String.valueOf(nextTimestamp), authorityKey)
-                .returnBoolean();
+                .returnInt();
         
-        return authority;
+        if (result == 0) {
+        	return RecurResult.PROCEED;
+        } else if (result == 1) {
+        	return RecurResult.KEY_LOCKED;
+        } else if (result == 2) {
+        	return RecurResult.KEY_LACKS_AUTHORITY;
+        } else {
+        	throw new RetaskException("Unexpected return value " + result + " from recur script");
+        }
+    }
+    
+    protected void unlockRecurKey(String recurKey) {
+    	rcommando.core().hdel(Key.RECUR_LOCK_KEY,  recurKey);
     }
 
     protected void revokeAuthority(String recurKey) {
@@ -152,5 +164,11 @@ class RetaskDao {
 
     protected long queueTaskIds(List<String> taskIds) {
         return rcommando.core().rpush(Key.TASKS, taskIds.toArray(new String[0]));
+    }
+    
+    protected enum RecurResult {
+    	PROCEED,
+    	KEY_LOCKED,
+    	KEY_LACKS_AUTHORITY,
     }
 }

@@ -5,7 +5,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import com.jarcadia.rcommando.RcValue;
+import com.jarcadia.rcommando.Dao;
+import com.jarcadia.rcommando.DaoValue;
 
 public class Task {
 
@@ -69,8 +70,9 @@ public class Task {
         return this;
     }
 
-    protected Task forChangedValue(String setKey, String id, RcValue before, RcValue after) {
-        this.param("object", Map.of("setKey", setKey, "id", id));
+    protected Task forChangedValue(Dao dao, String field, DaoValue before, DaoValue after) {
+    	this.params.put("object", dao);
+    	this.params.put("field", field);
         this.metadata.put("before", before.getRawValue());
         this.metadata.put("after", after.getRawValue());
         return this;

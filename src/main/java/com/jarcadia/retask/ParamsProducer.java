@@ -2,15 +2,19 @@ package com.jarcadia.retask;
 
 import java.io.IOException;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jarcadia.rcommando.RcSet;
 import com.jarcadia.rcommando.RedisCommando;
+import com.jarcadia.rcommando.proxy.DaoProxy;
 import com.jarcadia.retask.annontations.RetaskParam;
 
 class ParamsProducer {
@@ -19,6 +23,7 @@ class ParamsProducer {
 	private final RedisCommando rcommando;
 	private final Retask retask;
     private final ObjectMapper objectMapper;
+    private final int rcommandoParamIndex;
     private final int retaskParamIndex;
     private final int taskBucketParamIndex;
     private final int taskIdParamIndex;
@@ -27,10 +32,9 @@ class ParamsProducer {
     private final int permitParamIndex;
     private final ChangedValueParam beforeParam;
     private final ChangedValueParam afterParam;
-    private final Map<Integer, RcSet> rcSetParamIndexMap; 
     private final Map<Integer, TypedParam> jsonParamsIndexMap;
 
-    ParamsProducer(RedisCommando rcommando, Retask retask, Parameter[] parameters) {
+    ParamsProducer(RedisCommando rcommando, Retask retask, Parameter[] parameters, Set<Class<? extends DaoProxy>> proxyClasses) {
     	this.numParams = parameters.length;
     	this.rcommando = rcommando;
         this.retask = retask;
@@ -40,6 +44,7 @@ class ParamsProducer {
         boolean[] accountedFor = new boolean[numParams];
         
         // Discover parameters
+        this.rcommandoParamIndex = discoverTypedParamIndex(parameters, RedisCommando.class, accountedFor);
         this.retaskParamIndex = discoverTypedParamIndex(parameters, Retask.class, accountedFor);
         this.taskBucketParamIndex = discoverTypedParamIndex(parameters, TaskBucket.class, accountedFor);
         this.taskIdParamIndex = discoverNamedParamIndex(parameters, "taskId", accountedFor);
@@ -48,7 +53,6 @@ class ParamsProducer {
         this.permitParamIndex = discoverNamedParamIndex(parameters, "permit", accountedFor);
         this.beforeParam = this.discoverChangedValueParam(parameters, "before", accountedFor);
         this.afterParam = this.discoverChangedValueParam(parameters, "after", accountedFor);
-        this.rcSetParamIndexMap = this.discoverRcSetParameterIndexes(parameters, accountedFor);
 
         // The remaining method parameters will come from the task's JSON parameters
         this.jsonParamsIndexMap = discoverJsonParameterIndexes(parameters, accountedFor);
@@ -56,6 +60,9 @@ class ParamsProducer {
 
     protected Object[] produceParams(String taskId, String routingKey, int attempt, int permit, String before, String after, String jsonParams, TaskBucket taskBucket) throws RetaskParamsException {
     	Object[] params = new Object[numParams];
+    	if (rcommandoParamIndex >= 0) {
+    		params[rcommandoParamIndex] = rcommando;
+    	}
     	if (retaskParamIndex >= 0) {
             params[retaskParamIndex] = retask;
     	}
@@ -90,12 +97,6 @@ class ParamsProducer {
 				throw new RetaskParamsException("Unable to deserialize after parameter to " + afterParam.getType().getTypeName() + " from " + after, e);
 			}
         }
-        if (!rcSetParamIndexMap.isEmpty()) {
-            for (Entry<Integer, RcSet> entry : rcSetParamIndexMap.entrySet()) {
-            	params[entry.getKey()] = entry.getValue();
-            }
-        	
-        }
         if (jsonParamsIndexMap.size() > 0) {
             JsonNode root;
 			try {
@@ -105,15 +106,35 @@ class ParamsProducer {
 			}
             for (Entry<Integer, TypedParam> entry : jsonParamsIndexMap.entrySet()) {
                 JsonNode node = root.get(entry.getValue().getName());
+                // Match any field name for single params
+                if (jsonParamsIndexMap.size() == 1 && root.size() == 1) {
+                    node = root.fields().next().getValue();
+                }
                 if (node == null) {
                 	throw new RetaskParamsException("Parameter " + entry.getValue().getName() + " not available in params");
                 } else if (node.isNull()) {
-                	throw new RetaskParamsException("Parameter " + entry.getValue().getName() + " is null in params");
+                	if (entry.getValue().isOptional) {
+                		params[entry.getKey()] = Optional.empty();
+                	} else {
+                        throw new RetaskParamsException("Parameter " + entry.getValue().getName() + " is null in params. Value must be specified or wrap parameter in Optional<>");
+                	}
                 } else {
-                    params[entry.getKey()] = objectMapper.convertValue(node, entry.getValue().getType());
+                	Object param = objectMapper.convertValue(node, entry.getValue().getType());
+                	if (param == null) {
+                        throw new RetaskParamsException("Parameter " + entry.getValue().getName() + " of type " + entry.getValue().getType().getTypeName() + " could not be constructed from " + node.toString());
+                	} else {
+                        params[entry.getKey()] = param;
+                	}
                 } 
             }
         }
+        // TODO, this should be in place - user should provide Optional<> if the
+        // parameter may be null
+//        for (int i=0; i<numParams; i++) {
+//        	if (params[i] == null) {
+//                throw new RetaskParamsException("Parameter " + i + " is null");
+//        	}
+//        }
         return params;
     }
 
@@ -159,17 +180,6 @@ class ParamsProducer {
         return false;
     }
     
-    private Map<Integer, RcSet> discoverRcSetParameterIndexes(Parameter[] parameters, boolean[] accountedFor) {
-    	Map<Integer, RcSet> map = new HashMap<>();
-        for (int i=0; i<parameters.length; i++) {
-        	if (!accountedFor[i] && RcSet.class.equals(parameters[i].getType())) {
-        		accountedFor[i] = true;
-        		map.put(i, rcommando.getSetOf(getName(parameters[i])));
-        	}
-        }
-        return map;
-    }
-    
     private Map<Integer, TypedParam> discoverJsonParameterIndexes(Parameter[] parameters, boolean[] accountedFor) {
         Map<Integer, TypedParam> result = new HashMap<>();
         for (int i=0; i<parameters.length; i++) {
@@ -181,7 +191,7 @@ class ParamsProducer {
     }
     
     private TypedParam createTypedParameter(Parameter parameter) {
-        return new TypedParam(getName(parameter), createJavaType(parameter));
+        return new TypedParam(getName(parameter), createJavaType(parameter), isOptional(parameter));
     }
     
     private String getName(Parameter parameter) {
@@ -192,6 +202,16 @@ class ParamsProducer {
     private JavaType createJavaType(Parameter parameter) {
         JavaType type = objectMapper.constructType(parameter.getParameterizedType());
         return type;
+    }
+    
+    private boolean isOptional(Parameter parameter) {
+    	Type type = parameter.getParameterizedType();
+    	if (type instanceof ParameterizedType) {
+            ParameterizedType parameterizedType = (ParameterizedType) type;
+            return Optional.class.equals(parameterizedType.getRawType());
+		} else {
+			return false;
+		}
     }
     
     private class ChangedValueParam {
@@ -217,10 +237,12 @@ class ParamsProducer {
 
         private final String name;
         private final JavaType type;
+        private final boolean isOptional;
 
-        public TypedParam(String name, JavaType type) {
+        public TypedParam(String name, JavaType type, boolean isOptional) {
         	this.name = name;
         	this.type = type;
+        	this.isOptional = isOptional;
         }
 
         public String getName() {

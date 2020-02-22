@@ -13,7 +13,7 @@ import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jarcadia.rcommando.RcSubscription;
+import com.jarcadia.rcommando.Subscription;
 import com.jarcadia.rcommando.RedisCommando;
 
 /**
@@ -25,7 +25,7 @@ class TaskResponseListener implements BiConsumer<String, String> {
 
     private final ObjectMapper objectMapper;
     private final Map<String, PendingTaskResponse<?>> map;
-    private final RcSubscription subscription;
+    private final Subscription subscription;
     
     public TaskResponseListener(RedisCommando rcommando) {
         this.objectMapper = rcommando.getObjectMapper();
@@ -54,7 +54,7 @@ class TaskResponseListener implements BiConsumer<String, String> {
     private <T> CompletableFuture<T> await(String taskId, Class<T> clazz, TypeReference<T> typeRef) {
     	subscription.subscribeOnce("task.response." + taskId);
     	CompletableFuture<T> future = new CompletableFuture<>();
-    	map.put(taskId, new PendingTaskResponse<T>(null, typeRef, future));
+    	map.put(taskId, new PendingTaskResponse<T>(clazz, typeRef, future));
     	return future;
     }
     

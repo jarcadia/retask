@@ -38,7 +38,7 @@ public class RetaskDaoUnitTest {
     
     @Test
     void verifyTaskQueueingWorks() {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         Task task = Task.create("test");
         dao.submit(task);
         Assertions.assertEquals(1, rcommando.core().hlen(task.getId()));
@@ -49,7 +49,7 @@ public class RetaskDaoUnitTest {
 
     @Test
     void verifyTaskQueueingWithParams() throws JsonProcessingException {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         Task task = Task.create("test").param("field", "value");
         dao.submit(task);
         Assertions.assertEquals(1, rcommando.core().llen(Key.TASKS));
@@ -64,7 +64,7 @@ public class RetaskDaoUnitTest {
 
     @Test
     void verifyTaskQueueingWithRecurrence() {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         Task task = Task.create("test").recurEvery("abc", 1, TimeUnit.SECONDS);
         String authorityKey = task.getMetadata().get("authorityKey");
         dao.submit(task);
@@ -85,7 +85,7 @@ public class RetaskDaoUnitTest {
     
     @Test
     void verifyTaskSchedulingWorks() {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         long target = System.currentTimeMillis() + 1000;
         Task task = Task.create("test").at(target);
         dao.submit(task);
@@ -100,7 +100,7 @@ public class RetaskDaoUnitTest {
     
     @Test
     void verifyTaskSchedulingWithParamsWorks() throws JsonProcessingException {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         long target = System.currentTimeMillis() + 1000;
         Task task = Task.create("test").at(target).param("field", "value");
         dao.submit(task);
@@ -118,7 +118,7 @@ public class RetaskDaoUnitTest {
     
     @Test
     void verifyTaskSchedulingWithRecurrenceWorks() {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         long target = System.currentTimeMillis() + 1000;
         Task task = Task.create("test").at(target).recurEvery("abc", 1, TimeUnit.SECONDS);
         String authorityKey = task.getMetadata().get("authorityKey");
@@ -141,7 +141,7 @@ public class RetaskDaoUnitTest {
 
     @Test
     void verifyPermitsWorksFromEmptyDb() {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         dao.setAvailablePermits("permits", 2);
         Assertions.assertEquals(Arrays.asList("2", "1"), rcommando.core().lrange("permits.available", 0, -1));
         Assertions.assertEquals(Collections.emptyList(), rcommando.core().lrange("permits.assigned", 0, -1));
@@ -149,20 +149,20 @@ public class RetaskDaoUnitTest {
 
     @Test
     void checkPermitsWorksWhenPermitsAreAvailable() {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         rcommando.core().lpush("permits.available", "1", "2");
         Assertions.assertEquals(2, dao.getAvailablePermits("permits"));
     }
 
     @Test
     void checkPermitsWorksWhenPermitsAreNotAvailableAndThereIsNoBacklog() {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         Assertions.assertEquals(0, dao.getAvailablePermits("permits"));
     }
 
     @Test
     void checkPermitsWorksWhenPermitsAreNotAvailableAndThereIsBacklog() {
-        RetaskDao dao = new RetaskDao(rcommando);
+        RetaskRepository dao = new RetaskRepository(rcommando);
         rcommando.core().lpush("permits.backlog", "task1", "task2");
         Assertions.assertEquals(-2, dao.getAvailablePermits("permits"));
     }

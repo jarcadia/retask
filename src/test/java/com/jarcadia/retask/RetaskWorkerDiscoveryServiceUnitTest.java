@@ -25,7 +25,7 @@ public class RetaskWorkerDiscoveryServiceUnitTest {
 
         RecruitmentResults results = recruiter.recruit();
 
-        Map<String, List<HandlerMethod<?>>> handlers = results.getHandlersByRoutingKey();
+        Map<String, List<HandlerMethod>> handlers = results.getHandlersByRoutingKey();
         Assertions.assertEquals(5, handlers.size());
         assertHelper(handlers.get("alpha").iterator(), ExampleWorkerAlpha.class, "handler");
         assertHelper(handlers.get("beta.one").iterator(), ExampleWorkerBeta.class, "handlerOne");
@@ -33,7 +33,7 @@ public class RetaskWorkerDiscoveryServiceUnitTest {
         assertHelper(handlers.get("gamma").iterator(), ExampleWorkerGamma.class, "handler");
         
         // Special handling for the duplicate routing key, sort for consistent results
-        Iterator<HandlerMethod<?>> sortedDupes = handlers.get("alpha.one").stream()
+        Iterator<HandlerMethod> sortedDupes = handlers.get("alpha.one").stream()
                 .sorted((a, b) -> a.getWorkerClass().getSimpleName().compareTo(b.getWorkerClass().getSimpleName()))
                 .collect(Collectors.toList()).iterator();
         
@@ -46,7 +46,7 @@ public class RetaskWorkerDiscoveryServiceUnitTest {
         RetaskRecruiter recruiter = new RetaskRecruiter();
         recruiter.recruitFromPackage("com.jarcadia.retask.example.valid");
         RecruitmentResults results = recruiter.recruit();
-        Map<String, List<HandlerMethod<?>>> handlers = results.getHandlersByRoutingKey();
+        Map<String, List<HandlerMethod>> handlers = results.getHandlersByRoutingKey();
         Assertions.assertEquals(5, handlers.size());
         assertHelper(handlers.get("alpha").iterator(), ExampleWorkerAlpha.class, "handler");
         assertHelper(handlers.get("beta.one").iterator(), ExampleWorkerBeta.class, "handlerOne");
@@ -54,7 +54,7 @@ public class RetaskWorkerDiscoveryServiceUnitTest {
         assertHelper(handlers.get("gamma").iterator(), ExampleWorkerGamma.class, "handler");
         
         // Special handling for the duplicate routing key, sort for consistent results
-        Iterator<HandlerMethod<?>> sortedDupes = handlers.get("alpha.one").stream()
+        Iterator<HandlerMethod> sortedDupes = handlers.get("alpha.one").stream()
                 .sorted((a, b) -> a.getWorkerClass().getSimpleName().compareTo(b.getWorkerClass().getSimpleName()))
                 .collect(Collectors.toList()).iterator();
         
@@ -62,8 +62,8 @@ public class RetaskWorkerDiscoveryServiceUnitTest {
         assertHelper(sortedDupes, ExampleWorkerAlphaCopy.class, "differentHandler");
     }
 
-    private void assertHelper(Iterator<HandlerMethod<?>> dwm, Class<?> expectedClass, String expectedMethodName) {
-        HandlerMethod<?> next = dwm.next();
+    private void assertHelper(Iterator<HandlerMethod> dwm, Class<?> expectedClass, String expectedMethodName) {
+        HandlerMethod next = dwm.next();
         Assertions.assertEquals(expectedClass, next.getWorkerClass());
         Assertions.assertEquals(expectedMethodName, next.getMethod().getName());
     }

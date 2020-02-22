@@ -19,7 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class RetaskScheduledTaskPollerUnitTest {
 
     @Mock
-    RetaskDao dao;
+    RetaskRepository dao;
 
     @Mock
     RetaskProcrastinator procrastinator;

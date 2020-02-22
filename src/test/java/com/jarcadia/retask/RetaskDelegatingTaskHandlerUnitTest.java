@@ -11,6 +11,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import com.jarcadia.retask.RetaskRepository.RecurResult;
+
 public class RetaskDelegatingTaskHandlerUnitTest {
     
     AtomicBoolean executed = new AtomicBoolean();
@@ -33,11 +35,11 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         };
     }
 
-    private RetaskDelegatingTaskHandler createHandler(RetaskDao helper, RetaskDelegate delegate) {
+    private RetaskDelegatingTaskHandler createHandler(RetaskRepository helper, RetaskDelegate delegate) {
         return new RetaskDelegatingTaskHandler(helper, delegate, new RetaskProcrastinator());
     }
 
-    private RetaskDelegatingTaskHandler createHandler(RetaskDao helper, RetaskDelegate delegate, RetaskProcrastinator procrastinator) {
+    private RetaskDelegatingTaskHandler createHandler(RetaskRepository helper, RetaskDelegate delegate, RetaskProcrastinator procrastinator) {
         return new RetaskDelegatingTaskHandler(helper, delegate, procrastinator);
     }
 
@@ -53,7 +55,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     void taskMethodParametersAreCorrect() throws Throwable {
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 1, -1, null, null, null, null);
 
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
         RetaskDelegatingTaskHandler handler = createHandler(helper, delegate);
         
         Task task = Task.create("routingKey");
@@ -68,12 +70,12 @@ public class RetaskDelegatingTaskHandlerUnitTest {
             Assertions.assertEquals(receivedTask, "abc");
             Assertions.assertEquals(receivedRoutingKey, "routingKey");
             executed.set(true);
-            throw new RetaskRetryException(5, TimeUnit.SECONDS);
+            throw new TaskRetryException(5, TimeUnit.SECONDS);
         };
         
         Task task = Task.create("routingKey");
 
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
 
         // Invoke the task
         RetaskDelegatingTaskHandler handler = createHandler(helper, delegate);
@@ -92,7 +94,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         Map<String, String> metadata = task.getMetadata();
         metadata.put("attempt", "2");
 
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
         RetaskDelegate delegate = createVerifyingWrapper("abc", "routingKey", 3, -1, null, null, null, null);
 
         // Invoke the task
@@ -111,13 +113,13 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         Task task = Task.create("routingKey").recurEvery("test-recur", 1, TimeUnit.SECONDS);
         String generatedAuthKey = task.getMetadata().get("authorityKey");
 
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
-        Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 500L, 1000L)).thenReturn(true);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
+        Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 500L, 1000L)).thenReturn(RecurResult.PROCEED);
 
         RetaskProcrastinator procrastinator = Mockito.mock(RetaskProcrastinator.class);
         Mockito.when(procrastinator.getCurrentTimeMillis()).thenReturn(500L);
 
-        // Add additional metadata (automatically done by Lua script)
+        // Add additional metadata (in production this is done by a Lua script)
         Map<String, String> metadata = task.getMetadata();
         metadata.put("recurKey", "test-recur");
         metadata.put("authorityKey", generatedAuthKey);
@@ -128,6 +130,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
 
         assertDelegateInvoked();
         Mockito.verify(helper, Mockito.times(1)).recur("test-recur", "abc", generatedAuthKey, 500, 1000L);
+        Mockito.verify(helper, Mockito.times(1)).unlockRecurKey("test-recur");
         Mockito.verify(helper, Mockito.times(1)).clearParams("abc");
         Mockito.verifyNoMoreInteractions(helper);
     }
@@ -139,8 +142,8 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         Task task = Task.create("test").recurEvery("test-recur", 1, TimeUnit.SECONDS);
         String generatedAuthKey = task.getMetadata().get("authorityKey");
 
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
-        Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 0, 1000L)).thenReturn(false);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
+        Mockito.when(helper.recur("test-recur", "abc", generatedAuthKey, 500L, 1000L)).thenReturn(RecurResult.KEY_LACKS_AUTHORITY);
 
         RetaskProcrastinator procrastinator = Mockito.mock(RetaskProcrastinator.class);
         Mockito.when(procrastinator.getCurrentTimeMillis()).thenReturn(500L);
@@ -163,14 +166,11 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         RetaskDelegate wrapper = createVerifyingWrapper("abc", "routingKey", 1, 2, null, null, null, null);
         Task task = Task.create("routingKey").requirePermit("permitKey");
 
-        // Create mocked helper to acquire permit 2
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
         Mockito.when(helper.acquirePermitOrBacklog("abc", "permitKey")).thenReturn(Optional.of(2));
 
-        // Invoke the task
         createHandler(helper, wrapper).handle("abc", task.getMetadata());
         
-        // Assertions
         assertDelegateInvoked();
         Mockito.verify(helper, Mockito.times(1)).acquirePermitOrBacklog("abc", "permitKey");
         Mockito.verify(helper, Mockito.times(1)).releasePermit("permitKey", 2);
@@ -184,7 +184,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
         Task task = Task.create("routingKey").requirePermit("permitKey");
 
         // Create mocked helper to reject permit
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
         Mockito.when(helper.acquirePermitOrBacklog("abc", "permitKey")).thenReturn(Optional.empty());
 
         // Invoke the task
@@ -198,7 +198,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     
     @Test
     void singleRetaskReturnValueIsSubmitted() throws Throwable {
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
 
         Task task = Task.create("routingKey");
         Task returnedTask = Task.create("returned");
@@ -216,7 +216,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     
     @Test
     void retaskArrayReturnValueIsSubmitted() throws Throwable {
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
 
         Task task = Task.create("routingKey");
         Task[] returnedTasks = new Task[] {Task.create("returnedOne"), Task.create("returnedTwo")};
@@ -234,7 +234,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     
     @Test
     void retaskListReturnValueIsSubmitted() throws Throwable {
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
 
         Task task = Task.create("routingKey");
         Task returnedTask = Task.create("returnedOne");
@@ -252,7 +252,7 @@ public class RetaskDelegatingTaskHandlerUnitTest {
     
     @Test
     void taskWillSleepUntilTargetTimestamp() throws Throwable {
-        RetaskDao helper = Mockito.mock(RetaskDao.class);
+        RetaskRepository helper = Mockito.mock(RetaskRepository.class);
 
         long targetTimestamp = System.currentTimeMillis() + 10000;
         Task task = Task.create("routingKey").at(targetTimestamp);

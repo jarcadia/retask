@@ -14,12 +14,12 @@ class RetaskScheduledTaskPoller implements Runnable, Closeable {
 
     private final Logger logger = LoggerFactory.getLogger(RetaskScheduledTaskPoller.class);
 
-    private final RetaskDao dao;
+    private final RetaskRepository dao;
     private final RetaskProcrastinator procrastinator;
     private final Thread thread;
     private final CompletableFuture<Void> closedFuture;
 
-    public RetaskScheduledTaskPoller(RetaskDao retaskHelper, RetaskProcrastinator procrastinator) {
+    public RetaskScheduledTaskPoller(RetaskRepository retaskHelper, RetaskProcrastinator procrastinator) {
         this.dao = retaskHelper;
         this.procrastinator = procrastinator;
         this.closedFuture = new CompletableFuture<>();
