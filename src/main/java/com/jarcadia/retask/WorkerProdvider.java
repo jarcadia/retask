@@ -1,6 +1,6 @@
 package com.jarcadia.retask;
 
 @FunctionalInterface
-public interface InstanceProvider {
+public interface WorkerProdvider {
     public Object getInstance(Class<?> clazz);
 }

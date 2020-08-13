@@ -17,12 +17,12 @@ import org.mockito.Mockito;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.jarcadia.rcommando.Dao;
-import com.jarcadia.rcommando.DaoSet;
+import com.jarcadia.rcommando.Index;
 import com.jarcadia.rcommando.DaoValue;
 import com.jarcadia.rcommando.DaoValues;
 import com.jarcadia.rcommando.RedisCommando;
 import com.jarcadia.rcommando.RedisCommandoObjectMapper;
-import com.jarcadia.rcommando.proxy.DaoProxy;
+import com.jarcadia.rcommando.proxy.Proxy;
 import com.jarcadia.retask.annontations.RetaskParam;
 import com.jarcadia.retask.data.TestPojo;
 
@@ -69,9 +69,9 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     public void methodWithMultipleRedisObjects(Dao book, @RetaskParam("car") Dao theCar, int count) {
         Assertions.assertNotNull(book);
         Assertions.assertNotNull(theCar);
-        Assertions.assertEquals("books", book.getSetKey());
+        Assertions.assertEquals("books", book.getType());
         Assertions.assertEquals("book1", book.getId());
-        Assertions.assertEquals("cars", theCar.getSetKey());
+        Assertions.assertEquals("cars", theCar.getType());
         Assertions.assertEquals("car1", theCar.getId());
         Assertions.assertEquals(42, count);
     }
@@ -80,19 +80,19 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     void delegateToMethodWithMultipleRedisObjectsProperly() throws Throwable {
     	// Setup mocks
     	Dao bookMock = Mockito.mock(Dao.class);
-        Mockito.when(bookMock.getSetKey()).thenReturn("books");
+        Mockito.when(bookMock.getType()).thenReturn("books");
         Mockito.when(bookMock.getId()).thenReturn("book1");
 
-    	DaoSet booksMapMock = Mockito.mock(DaoSet.class);
-    	Mockito.when(booksMapMock.size()).thenReturn(1L);
+    	Index booksMapMock = Mockito.mock(Index.class);
+    	Mockito.when(booksMapMock.count()).thenReturn(1L);
     	Mockito.when(booksMapMock.get("book1")).thenReturn(bookMock);
     	
     	Dao carMock = Mockito.mock(Dao.class);
-        Mockito.when(carMock.getSetKey()).thenReturn("cars");
+        Mockito.when(carMock.getType()).thenReturn("cars");
         Mockito.when(carMock.getId()).thenReturn("car1");
 
-    	DaoSet carsMapMock = Mockito.mock(DaoSet.class);
-    	Mockito.when(carsMapMock.size()).thenReturn(1L);
+    	Index carsMapMock = Mockito.mock(Index.class);
+    	Mockito.when(carsMapMock.count()).thenReturn(1L);
     	Mockito.when(carsMapMock.get("car1")).thenReturn(carMock);
     	
         Mockito.when(rcommando.getSetOf("books")).thenReturn(booksMapMock);
@@ -174,7 +174,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     }
 
     public void changeHandlerMethod(Dao object, String before, @RetaskParam("after") TestPojo pojo) {
-        Assertions.assertEquals("objs", object.getSetKey());
+        Assertions.assertEquals("objs", object.getType());
         Assertions.assertEquals("abc123", object.getId());
         Assertions.assertEquals("hello", before);
         Assertions.assertEquals("John Doe", pojo.getName());
@@ -188,10 +188,10 @@ public class RetaskReflectiveTaskDelegateUnitTest {
         pojo.setAge(33);
         
         Dao objMock = Mockito.mock(Dao.class);
-        Mockito.when(objMock.getSetKey()).thenReturn("objs");
+        Mockito.when(objMock.getType()).thenReturn("objs");
         Mockito.when(objMock.getId()).thenReturn("abc123");
 
-        DaoSet mapMock = Mockito.mock(DaoSet.class);
+        Index mapMock = Mockito.mock(Index.class);
         Mockito.when(mapMock.get("abc123")).thenReturn(objMock);
 
         Mockito.when(rcommando.getSetOf("objs")).thenReturn(mapMock);
@@ -214,10 +214,10 @@ public class RetaskReflectiveTaskDelegateUnitTest {
         pojo.setAge(33);
         
         Dao objMock = Mockito.mock(Dao.class);
-        Mockito.when(objMock.getSetKey()).thenReturn("objs");
+        Mockito.when(objMock.getType()).thenReturn("objs");
         Mockito.when(objMock.getId()).thenReturn("abc123");
 
-        DaoSet mapMock = Mockito.mock(DaoSet.class);
+        Index mapMock = Mockito.mock(Index.class);
         Mockito.when(mapMock.get("abc123")).thenReturn(objMock);
 
         Mockito.when(rcommando.getSetOf("objs")).thenReturn(mapMock);
@@ -237,7 +237,7 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     
     
     
-    public interface TestProxy extends DaoProxy {
+    public interface TestProxy extends Proxy {
     	
     	public String getName();
     	public int getAge();
@@ -264,11 +264,11 @@ public class RetaskReflectiveTaskDelegateUnitTest {
     	DaoValues valuesMock = setupValuesMock(nameMock, ageMock);
 
         Dao objMock = Mockito.mock(Dao.class);
-        Mockito.when(objMock.getSetKey()).thenReturn("objs");
+        Mockito.when(objMock.getType()).thenReturn("objs");
         Mockito.when(objMock.getId()).thenReturn("abc123");
         Mockito.when(objMock.get(new String[] {"name", "age"})).thenReturn(valuesMock);
 
-        DaoSet mapMock = Mockito.mock(DaoSet.class);
+        Index mapMock = Mockito.mock(Index.class);
         Mockito.when(mapMock.get("abc123")).thenReturn(objMock);
         Mockito.when(rcommando.getSetOf("objs")).thenReturn(mapMock);
         

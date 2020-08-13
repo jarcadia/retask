@@ -13,10 +13,10 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.jarcadia.rcommando.RedisCommando;
 import com.jarcadia.rcommando.RedisCommandoObjectMapper;
-import com.jarcadia.rcommando.callbacks.DaoDeleteCallback;
-import com.jarcadia.rcommando.callbacks.DaoInsertCallback;
-import com.jarcadia.rcommando.callbacks.DaoValueChangeCallback;
-import com.jarcadia.rcommando.proxy.DaoProxy;
+import com.jarcadia.rcommando.callbacks.DaoDeletedCallback;
+import com.jarcadia.rcommando.callbacks.DaoInsertedCallback;
+import com.jarcadia.rcommando.callbacks.DaoValueModifiedCallback;
+import com.jarcadia.rcommando.proxy.Proxy;
 import com.jarcadia.retask.HandlerMethod.HandlerType;
 
 import io.lettuce.core.RedisClient;
@@ -77,18 +77,19 @@ public class Retask {
         
         // Create internal prereqs
         final RetaskRepository repo = new RetaskRepository(rcommando);
-        
+
+        // Explicitly register external setter
         recruiter.recruitFromClass(ExternalSetWorker.class);
 
         // Scan for recruits
         final RecruitmentResults recruits = recruiter.recruit();
         
-        // Create public API
+        // Create public API object
         final Retask retask = new Retask(repo, recruits);
         
         // Setup insert handlers
         for (HandlerMethod insertHandler : dedupeHandlersByRoutingKey(recruits.getHandlers(HandlerType.INSERT))) {
-            DaoInsertCallback callback = (dao) -> {
+            DaoInsertedCallback callback = (dao) -> {
                 Task task = Task.create(insertHandler.getRoutingKey()).param("object", dao);
                 repo.submit(task);
             };
@@ -97,7 +98,7 @@ public class Retask {
 
         // Setup delete handlers
         for (HandlerMethod deleteHandler : dedupeHandlersByRoutingKey(recruits.getHandlers(HandlerType.DELETE))) {
-            DaoDeleteCallback callback = (setKey, id) -> {
+            DaoDeletedCallback callback = (setKey, id) -> {
                 Task task = Task.create(deleteHandler.getRoutingKey()).param("id", id);
                 repo.submit(task);
             };
@@ -106,17 +107,17 @@ public class Retask {
         
         // Setup change handlers
         for (HandlerMethod changeHandler : dedupeHandlersByRoutingKey(recruits.getHandlers(HandlerType.CHANGE))) {
-        	 DaoValueChangeCallback callback = (dao, field, before, after) -> {
+        	 DaoValueModifiedCallback callback = (dao, field, before, after) -> {
                  Task task = Task.create(changeHandler.getRoutingKey()).forChangedValue(dao, field, before, after);
                  repo.submit(task);
-                 logger.trace("Dispatched change task {}: {}.{}.{}: {} -> {}", task.getId(), dao.getSetKey(), dao.getId(), field, before.getRawValue(), after.getRawValue());
+                 logger.trace("Dispatched change task {}: {}.{}.{}: {} -> {}", task.getId(), dao.getType(), dao.getId(), field, before.getRawValue(), after.getRawValue());
              };
              rcommando.registerFieldChangeCallback(changeHandler.getSetKey(), changeHandler.getFieldName(), callback);
         }
         
         // Register Jackson modules for RcProxy classes
         RedisCommandoObjectMapper objectMapper = (RedisCommandoObjectMapper) rcommando.getObjectMapper();
-        for (Class<? extends DaoProxy> proxyClass : recruits.getProxyClasses()) {
+        for (Class<? extends Proxy> proxyClass : recruits.getProxyClasses()) {
         	objectMapper.registerProxyClass(proxyClass);
         }
 

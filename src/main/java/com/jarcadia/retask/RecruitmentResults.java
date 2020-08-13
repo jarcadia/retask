@@ -6,19 +6,19 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import com.jarcadia.rcommando.proxy.DaoProxy;
+import com.jarcadia.rcommando.proxy.Proxy;
 import com.jarcadia.retask.HandlerMethod.HandlerType;
 
 class RecruitmentResults {
 	
 	private final List<HandlerMethod> handlers;
-	private final Set<Class<? extends DaoProxy>> proxyClasses;
+	private final Set<Class<? extends Proxy>> proxyClasses;
     private final Map<HandlerType, List<HandlerMethod>> handlersByType;
     private final Map<String, List<HandlerMethod>> handlersByRoutingKey;
 	private final Map<Class<?>, List<HandlerMethod>> handlersByAnnontationClass;
 
 	public RecruitmentResults(List<HandlerMethod> handlers,
-			Set<Class<? extends DaoProxy>> proxyClasses,
+			Set<Class<? extends Proxy>> proxyClasses,
 			Map<HandlerType, List<HandlerMethod>> handlersByType,
 			Map<String, List<HandlerMethod>> handlersByRoutingKey,
 			Map<Class<?>, List<HandlerMethod>> handlersByAnnontationClass) {
@@ -39,7 +39,7 @@ class RecruitmentResults {
 		return handlers;
 	}
 	
-	protected Set<Class<? extends DaoProxy>> getProxyClasses() {
+	protected Set<Class<? extends Proxy>> getProxyClasses() {
 		return proxyClasses;
 	}
 

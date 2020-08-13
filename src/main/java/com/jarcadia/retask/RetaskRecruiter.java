@@ -3,7 +3,6 @@ package com.jarcadia.retask;
 import java.io.File;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -15,7 +14,6 @@ import java.util.stream.StreamSupport;
 
 import org.reflections.Reflections;
 import org.reflections.scanners.MethodAnnotationsScanner;
-import org.reflections.scanners.MethodParameterScanner;
 import org.reflections.scanners.SubTypesScanner;
 import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
@@ -24,7 +22,7 @@ import org.reflections.vfs.Vfs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.jarcadia.rcommando.proxy.DaoProxy;
+import com.jarcadia.rcommando.proxy.Proxy;
 import com.jarcadia.retask.HandlerMethod.HandlerType;
 import com.jarcadia.retask.annontations.RetaskChangeHandler;
 import com.jarcadia.retask.annontations.RetaskDeleteHandler;
@@ -120,7 +118,7 @@ public class RetaskRecruiter {
             }
 		}
 		
-		final Set<Class<? extends DaoProxy>> proxyClasses = reflections.getSubTypesOf(DaoProxy.class);
+		final Set<Class<? extends Proxy>> proxyClasses = reflections.getSubTypesOf(Proxy.class);
 		logger.info("Recruited {} Dao Proxies: {}", proxyClasses.size(), proxyClasses);
 		
         // Group handlers by type

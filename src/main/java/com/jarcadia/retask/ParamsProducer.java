@@ -14,7 +14,7 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jarcadia.rcommando.RedisCommando;
-import com.jarcadia.rcommando.proxy.DaoProxy;
+import com.jarcadia.rcommando.proxy.Proxy;
 import com.jarcadia.retask.annontations.RetaskParam;
 
 class ParamsProducer {
@@ -34,7 +34,7 @@ class ParamsProducer {
     private final ChangedValueParam afterParam;
     private final Map<Integer, TypedParam> jsonParamsIndexMap;
 
-    ParamsProducer(RedisCommando rcommando, Retask retask, Parameter[] parameters, Set<Class<? extends DaoProxy>> proxyClasses) {
+    ParamsProducer(RedisCommando rcommando, Retask retask, Parameter[] parameters, Set<Class<? extends Proxy>> proxyClasses) {
     	this.numParams = parameters.length;
     	this.rcommando = rcommando;
         this.retask = retask;

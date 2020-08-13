@@ -18,7 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.jarcadia.rcommando.RedisCommando;
-import com.jarcadia.rcommando.proxy.DaoProxy;
+import com.jarcadia.rcommando.proxy.Proxy;
 
 public class RetaskManager {
 	
@@ -30,9 +30,9 @@ public class RetaskManager {
     private final RecruitmentResults handlers;
     private final ExecutorService executor;
     private final RetaskProcrastinator procrastinator;
-    private final Set<InstanceProvider> instanceProviders;
-    private final Map<Class<?>, Object> instanceMap;
-	
+    private final Set<WorkerProdvider> workerProviders;
+    private final Map<Class<?>, Object> workerMap;
+
     private final RetaskTaskPopperDao taskPopperDao;
     private final RetaskTaskPopper taskPopper;
     private final RetaskScheduledTaskPoller scheduledTaskPoller;
@@ -44,10 +44,10 @@ public class RetaskManager {
     	this.handlers = recruits;
     	this.executor = Executors.newCachedThreadPool();
     	this.procrastinator = new RetaskProcrastinator();
-    	this.instanceProviders = ConcurrentHashMap.newKeySet();
-    	this.instanceMap = new ConcurrentHashMap<>();
-    	
-    	this.addInstance(new ExternalSetWorker());
+    	this.workerProviders = ConcurrentHashMap.newKeySet();
+    	this.workerMap = new ConcurrentHashMap<>();
+
+    	this.addWorker(new ExternalSetWorker());
     	
    	 	// Get handler methods by routingKey
         Map<String, List<HandlerMethod>> routes = recruits.getHandlersByRoutingKey();
@@ -69,33 +69,33 @@ public class RetaskManager {
         this.scheduledTaskPoller = new RetaskScheduledTaskPoller(dao, procrastinator);
     }
 
-    public void addInstanceProvider(InstanceProvider provider) {
-    	this.instanceProviders.add(provider);
+    public void addWorkerProvider(WorkerProdvider provider) {
+    	this.workerProviders.add(provider);
     }
     
-    public void addInstance(Object obj) {
-    	this.instanceMap.put(obj.getClass(), obj);
+    public void addWorker(Object worker) {
+    	this.workerMap.put(worker.getClass(), worker);
     }
     
-    public void addInstances(Object... objs) {
-    	for (Object obj : objs) {
-    		this.addInstance(obj);
+    public void addWorker(Object... workers) {
+    	for (Object obj : workers) {
+    		this.addWorker(obj);
     	}
     }
     
-    public <T> void addInstance(Class<T> clazz, T worker) {
-    	this.instanceMap.put(clazz, worker);
+    public <T> void addWorker(Class<T> clazz, T worker) {
+    	this.workerMap.put(clazz, worker);
     }
 
     public Set<String> verifyRoutes(Collection<String> routes) {
         return this.handlers.verifyRoutes(routes);
     }
     
-    public <A extends Annotation> List<HandlerMethod> getHandlersByAnnontation(Class<A> annontationClass) {
-        return this.handlers.getHandlers(annontationClass);
+    public <A extends Annotation> List<HandlerMethod> getHandlersByAnnotation(Class<A> annotationClass) {
+        return this.handlers.getHandlers(annotationClass);
     }
     
-    public Set<Class<? extends DaoProxy>> getDaoProxies() {
+    public Set<Class<? extends Proxy>> getDaoProxies() {
     	return this.handlers.getProxyClasses();
     }
 
@@ -111,7 +111,7 @@ public class RetaskManager {
 
     public void start() {
     	for (HandlerMethod handler : handlers.getHandlers()) {
-    		Object instance = getWorkerInstance(handler.getWorkerClass());
+    		Object instance = getWorker(handler.getWorkerClass());
     		handler.setWorkerInstance(instance);
     	}
         this.taskPopper.start();
@@ -156,12 +156,12 @@ public class RetaskManager {
         return new RetaskReflectiveTaskDelegate(handlerMethod.getWorkerInstance(), handlerMethod.getMethod(), paramsProducer);
     }
     
-    private Object getWorkerInstance(Class<?> clazz) {
-    	Object obj = instanceMap.get(clazz);
+    private Object getWorker(Class<?> clazz) {
+    	Object obj = workerMap.get(clazz);
     	if (obj != null) {
     		return obj;
     	} else {
-            for (InstanceProvider provider : instanceProviders) {
+            for (WorkerProdvider provider : workerProviders) {
             	try {
                     obj = provider.getInstance(clazz);
                     if (obj != null) {
