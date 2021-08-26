@@ -1,0 +1,17 @@
+package dev.jarcadia.annontation;
+
+import io.micronaut.context.annotation.Executable;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+@Executable
+public @interface OnUpdate {
+
+    String table();
+    String[] fields() default { "" };
+}
