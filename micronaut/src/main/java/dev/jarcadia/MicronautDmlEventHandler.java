@@ -10,11 +10,11 @@ class MicronautDmlEventHandler<T> implements DmlEventHandler {
     private final BeanContext context;
     private final BeanDefinition<T> beanDefinition;
     private final ExecutableMethod<T, ?> executableMethod;
-    private final MicronautDmlEventHandlerParamProducer paramProducer;
+    private final MicronautTaskHandlerParamProducer paramProducer;
 
     protected MicronautDmlEventHandler(BeanContext context, BeanDefinition<T> beanDefinition,
             ExecutableMethod<T, ?> executableMethod,
-            MicronautDmlEventHandlerParamProducer paramProducer) {
+            MicronautTaskHandlerParamProducer paramProducer) {
         this.context = context;
         this.beanDefinition = beanDefinition;
         this.executableMethod = executableMethod;
@@ -22,8 +22,8 @@ class MicronautDmlEventHandler<T> implements DmlEventHandler {
     }
 
     @Override
-    public Object apply(String table, Fields fields) throws Throwable {
+    public Object apply(String table, Fields fields) {
         return executableMethod.invoke(context.getBean(beanDefinition),
-                paramProducer.produceParams(table, fields));
+                paramProducer.produceParams(new Object[]{table}, fields));
     }
 }

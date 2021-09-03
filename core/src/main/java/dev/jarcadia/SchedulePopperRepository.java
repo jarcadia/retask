@@ -1,7 +1,8 @@
 package dev.jarcadia;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.lettuce.core.RedisClient;
+import dev.jarcadia.redis.RedisConnection;
+import dev.jarcadia.redis.RedisEval;
+import dev.jarcadia.redis.RedisFactory;
 
 import java.util.List;
 import java.util.stream.IntStream;
@@ -11,8 +12,8 @@ public class SchedulePopperRepository {
 
     private final RedisConnection rc;
 
-    public SchedulePopperRepository(RedisClient client, ObjectMapper objectMapper) {
-        this.rc = new RedisConnection(client, objectMapper);
+    public SchedulePopperRepository(RedisFactory jarcadiaRedisFactory) {
+        this.rc = jarcadiaRedisFactory.openConnection();
     }
 
     protected SchedulePopResponse schedulePop(long now, int limit) {

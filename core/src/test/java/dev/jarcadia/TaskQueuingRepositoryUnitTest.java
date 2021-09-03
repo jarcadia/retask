@@ -1,6 +1,9 @@
 package dev.jarcadia;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.jarcadia.redis.RedisAssert;
+import dev.jarcadia.redis.RedisConnection;
+import dev.jarcadia.redis.RedisFactory;
 import io.lettuce.core.Range;
 import io.lettuce.core.RedisClient;
 import org.junit.jupiter.api.Assertions;
@@ -15,13 +18,12 @@ import java.util.stream.Stream;
 public class TaskQueuingRepositoryUnitTest {
 
     private static Stream<Arguments> args() {
-        RedisClient client = RedisClient.create("redis://localhost/15");
-        ObjectMapper objectMapper = new ObjectMapper();
-        RedisConnection rc = new RedisConnection(client, objectMapper);
+        RedisFactory rf = new RedisFactory(RedisClient.create("redis://localhost/15"), new ObjectMapper());
+        RedisConnection rc = rf.openConnection();
         Procrastinator procrastinator = Mockito.mock(Procrastinator.class);
         Mockito.when(procrastinator.getCurrentTimeMillis()).thenReturn(1500L);
         TaskQueuingRepository repository = new TaskQueuingRepository(rc, procrastinator);
-        return Stream.of(Arguments.of(rc, repository, new RedisAssert(rc)));
+        return Stream.of(Arguments.of(rc, repository, new RedisAssert(rf)));
     }
 
     @ParameterizedTest @MethodSource({"args"})

@@ -1,11 +1,8 @@
 package dev.jarcadia;
 
+import dev.jarcadia.redis.RedisConnection;
+import dev.jarcadia.redis.RedisEval;
 import io.lettuce.core.SetArgs;
-
-import javax.xml.transform.OutputKeys;
-import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class TaskQueuingRepository {
 

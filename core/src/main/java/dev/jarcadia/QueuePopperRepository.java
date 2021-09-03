@@ -1,10 +1,9 @@
 package dev.jarcadia;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.jarcadia.redis.RedisConnection;
+import dev.jarcadia.redis.RedisFactory;
 import io.lettuce.core.Consumer;
 import io.lettuce.core.RedisBusyException;
-import io.lettuce.core.RedisClient;
 import io.lettuce.core.StreamMessage;
 import io.lettuce.core.XGroupCreateArgs;
 import io.lettuce.core.XReadArgs;
@@ -13,7 +12,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.util.List;
-import java.util.Map;
 
 class QueuePopperRepository implements Closeable {
 
@@ -21,12 +19,10 @@ class QueuePopperRepository implements Closeable {
 
     private final RedisConnection redisConnection;
     private final Consumer<String> consumer;
-    private final TypeReference<Map<String, String>> mapTypeReference;
 
-    protected QueuePopperRepository(RedisClient redisClient, ObjectMapper objectMapper, String consumerName) {
-        this.redisConnection = new RedisConnection(redisClient, objectMapper);
+    protected QueuePopperRepository(RedisFactory redisFactory, String consumerName) {
+        this.redisConnection = redisFactory.openConnection();
         this.consumer = Consumer.from(Keys.CONSUMER_GROUP, consumerName);
-        this.mapTypeReference = new TypeReference<>() {};
     }
 
    protected void initialize() {

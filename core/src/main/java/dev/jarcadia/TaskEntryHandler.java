@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.jarcadia.exception.RetaskException;
 import dev.jarcadia.exception.RetryTaskException;
 import dev.jarcadia.iface.TaskHandler;
+import dev.jarcadia.redis.RedisConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,7 +86,7 @@ public class TaskEntryHandler {
                     if (responseChannel != null) {
                         taskFinalizingRepository.publishResponse(responseChannel, returnValue);
                     } else {
-                        returnValueHandler.handle(returnValue);
+                        returnValueHandler.handle(taskId, route, attempt, permit, fields, returnValue);
                     }
                 }
             } catch (Throwable t) {

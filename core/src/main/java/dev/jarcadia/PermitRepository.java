@@ -1,5 +1,7 @@
 package dev.jarcadia;
 
+import dev.jarcadia.redis.RedisConnection;
+
 class PermitRepository {
 
     private final RedisConnection rc;

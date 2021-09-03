@@ -24,6 +24,6 @@ class MicronautTaskHandler<T> implements TaskHandler {
     @Override
     public Object execute(String taskId, String route, int attempt, int permit, Fields fields) throws Throwable {
         return executableMethod.invoke(context.getBean(beanDefinition),
-                paramProducer.produceParams(taskId, route, attempt, permit, fields));
+                paramProducer.produceParams(new Object[]{taskId, route, attempt, permit}, fields));
     }
 }

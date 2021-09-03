@@ -5,11 +5,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class RetaskRegistations {
+public class RetaskMicronautRegistations {
 
     private final List<RegisteredTaskHandler<?>> taskHandlers;
 
-    public RetaskRegistations(List<RegisteredTaskHandler<?>> taskHandlers) {
+    public RetaskMicronautRegistations(List<RegisteredTaskHandler<?>> taskHandlers) {
         this.taskHandlers = taskHandlers;
     }
 

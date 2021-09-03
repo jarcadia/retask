@@ -3,6 +3,7 @@ package dev.jarcadia;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.jarcadia.exception.SerializationException;
+import dev.jarcadia.redis.RedisConnection;
 
 public class TaskFinalizingRepository {
 

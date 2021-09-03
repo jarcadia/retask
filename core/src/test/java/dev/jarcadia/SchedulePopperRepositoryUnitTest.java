@@ -1,6 +1,9 @@
 package dev.jarcadia;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.jarcadia.redis.RedisAssert;
+import dev.jarcadia.redis.RedisConnection;
+import dev.jarcadia.redis.RedisFactory;
 import io.lettuce.core.RedisClient;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -15,11 +18,10 @@ import java.util.stream.Stream;
 public class SchedulePopperRepositoryUnitTest {
 
     private static Stream<Arguments> args() {
-        RedisClient client = RedisClient.create("redis://localhost/15");
-        ObjectMapper objectMapper = new ObjectMapper();
-        RedisConnection rc = new RedisConnection(client, objectMapper);
-        SchedulePopperRepository repository = new SchedulePopperRepository(client, objectMapper);
-        return Stream.of(Arguments.of(rc, repository, new RedisAssert(rc)));
+        RedisFactory rf = new RedisFactory(RedisClient.create("redis://localhost/15"), new ObjectMapper());
+        RedisConnection rc = rf.openConnection();
+        SchedulePopperRepository repository = new SchedulePopperRepository(rf);
+        return Stream.of(Arguments.of(rc, repository, new RedisAssert(rf)));
     }
 
     @ParameterizedTest

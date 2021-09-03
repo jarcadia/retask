@@ -1,5 +1,18 @@
 package dev.jarcadia;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.jarcadia.iface.DmlEventHandler;
+import dev.jarcadia.iface.DmlEventReturnValueHandler;
+import dev.jarcadia.iface.StartHandler;
+import dev.jarcadia.iface.TaskHandler;
+import dev.jarcadia.iface.TaskReturnValueHandler;
+import dev.jarcadia.redis.RedisConnection;
+import dev.jarcadia.redis.RedisFactory;
+import io.lettuce.core.RedisClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -14,117 +27,72 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import dev.jarcadia.iface.DmlEventHandler;
-import dev.jarcadia.iface.PubSubMessageHandler;
-import dev.jarcadia.iface.StartHandler;
-import dev.jarcadia.iface.TaskHandler;
-import dev.jarcadia.iface.TypedPubSubMessageHandler;
-import io.lettuce.core.RedisClient;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 public class Retask implements AutoCloseable {
 
     private final Logger logger = LoggerFactory.getLogger(Retask.class);
 
-    /** Rcommando has a name. This name is used to submit events, register proof of life
-     * and session info. Each Rcommando instance must have a unique name. It should detect if another active instance
-     * is using the same name
-     *
-     * REDAO DAEMON is a THING - IT IS OPTIONAL, it TAKES Redao instance and does all the below stuff
-     *
-     * It also starts the external set popper and the session thread.
-     * Session thread push latest timestamp somewhere as PoL
-     * It also generates a GUID on startup as the session ID and stores it associated with the name.
-     * Every proof of life should verify that session ID (if it is clobbered, names are being reused)
-     *
-     * On clean shutodnw, session ID, PoL are removed. On crash, PoL will become stale
-     *
-     * The PoL check could return any detected Stales, and return them for cleanup
-     *
-     * Instant check, like CLI, can check PoL timestamps. Continuous check, like frontend will contiously verify PoL
-     * as well as listening for events
-     *
-     *
-     * Replace cloneRedao with using separate connections instead. RCommando is more than just a wrapper on
-     * Lettuce. You can't clone redao. I think redao should exit if the session ID is stolen
-     */
-
     private final ObjectMapper objectMapper;
 
-    private final Procrastinator procrastinator;
-
-    private final RedisClient redisClient;
-    private final RedisConnection primaryRc;
-
+    private final RedisFactory redisFactory;
+//    private final RedisConnection primaryRc;
+    private final Set<RedisConnection> connections;
 
     private final AtomicBoolean closing;
     private final List<java.util.concurrent.CountDownLatch> shutdownLatches;
 //    private final PersistDaemon daemon;
 
-
     private final TaskQueuingService taskQueuingService;
-    private final TaskQueuingRepository taskQueuingRepository;
 
     private final PermitRepository permitRepository;
 
-    private final DmlEventEntryHandler recordOpHandler;
+    private final DmlEventEntryHandler dmlEventEntryHandler;
     private final TaskEntryHandler taskEntryHandler;
-    private final ReturnValueHandler returnValueHandler;
-
-    private final ExecutorService executor;
 
     private final QueuePopper queuePopper;
     private final SchedulePopper schedulePopper;
+
+    private final LifeCycleCallbackHandler lifeCycleCallbackHandler;
 
     public static RetaskConfig configure() {
         return new RetaskConfig();
     }
 
-    private final Set<RedisConnection> connections;
-    private final LifeCycleCallbackHandler lifeCycleCallbackHandler;
-
-
-    Retask(RedisClient redisClient, ObjectMapper objectMapper, boolean flushDatabase) {
-        this.objectMapper = RetaskJson.decorate(objectMapper);
-//        this.formatter = new ValueFormatter(objectMapper);
-
-        this.procrastinator = new Procrastinator();
-
-        this.redisClient = redisClient;
-        this.primaryRc = new RedisConnection(redisClient, objectMapper);
-        if (flushDatabase) {
-            this.primaryRc.commands().flushdb();
-        }
-
-        this.taskQueuingRepository = new TaskQueuingRepository(primaryRc,  procrastinator);
-        this.taskQueuingService = new TaskQueuingService(redisClient, objectMapper, taskQueuingRepository);
+    Retask(RedisClient redisClient, ObjectMapper objectMapper, TaskReturnValueHandler taskReturnValueHandler,
+            DmlEventReturnValueHandler dmlEventReturnValueHandler, boolean flushDatabase) {
 
         this.closing = new AtomicBoolean(false);
         this.connections = Collections.synchronizedSet(new HashSet<>());
         this.shutdownLatches = Collections.synchronizedList(new LinkedList<>());
 
+        this.objectMapper = RetaskJson.decorate(objectMapper);
+        this.redisFactory = new RedisFactory(redisClient, objectMapper);
+
+        RedisConnection primaryRc = redisFactory.openConnection();
+        this.connections.add(primaryRc);
+        if (flushDatabase) {
+            primaryRc.commands().flushdb();
+        }
+
+        Procrastinator procrastinator = new Procrastinator();
+        TaskQueuingRepository taskQueuingRepository = new TaskQueuingRepository(primaryRc, procrastinator);
+        this.taskQueuingService = new TaskQueuingService(redisClient, objectMapper, taskQueuingRepository);
+
 //        this.daemon = new PersistDaemon(this, daemonRepository, new Procrastinator());
 
-        this.executor = Executors.newCachedThreadPool();
-
-        QueuePopperRepository popperRepo = new QueuePopperRepository(redisClient, objectMapper, "TODO");
-
-        this.returnValueHandler = new ReturnValueHandler(taskQueuingService);
-        this.recordOpHandler = new DmlEventEntryHandler(executor, objectMapper, returnValueHandler);
+        ExecutorService executor = Executors.newCachedThreadPool();
+        ReturnValueHandler returnValueHandler = new ReturnValueHandler(taskQueuingService, taskReturnValueHandler,
+                dmlEventReturnValueHandler);
+        this.dmlEventEntryHandler = new DmlEventEntryHandler(executor, objectMapper, returnValueHandler);
         this.permitRepository = new PermitRepository(primaryRc);
         TaskFinalizingRepository taskFinalizingRepository = new TaskFinalizingRepository(primaryRc, objectMapper);
         this.taskEntryHandler = new TaskEntryHandler(executor, objectMapper, primaryRc, returnValueHandler,
                 taskQueuingRepository, permitRepository, taskFinalizingRepository);
 
-        QueueEntryHandler queueEntryHandler = new QueueEntryHandler(recordOpHandler, taskEntryHandler);
-
+        QueuePopperRepository popperRepo = new QueuePopperRepository(redisFactory, "TODO");
+        QueueEntryHandler queueEntryHandler = new QueueEntryHandler(dmlEventEntryHandler, taskEntryHandler);
         this.queuePopper = new QueuePopper(popperRepo, queueEntryHandler, procrastinator);
 
-        SchedulePopperRepository schedulePopperRepo = new SchedulePopperRepository(redisClient, objectMapper);
+        SchedulePopperRepository schedulePopperRepo = new SchedulePopperRepository(redisFactory);
         SchedulePopperService schedulePopperService = new SchedulePopperService(schedulePopperRepo, objectMapper,
             new CronService(), 100);
 
@@ -134,20 +102,13 @@ public class Retask implements AutoCloseable {
     }
 
     public void start() {
-
         queuePopper.start();
         schedulePopper.start();
-
         lifeCycleCallbackHandler.invokeStartCallbacks();
     }
 
-    /**
-     * Opens a new RedisConnection.
-     */
-    public RedisConnection openRedisConnection() {
-        RedisConnection connection = new RedisConnection(redisClient, objectMapper);
-        this.connections.add(connection);
-        return connection;
+    public RedisFactory getRedisFactory() {
+        return this.redisFactory;
     }
 
 //    public SimpleSubscription subscribe(String channel, Consumer<String> consumer) {
@@ -171,16 +132,21 @@ public class Retask implements AutoCloseable {
     }
 
     public <T> CompletableFuture<T> call(Task.Builder task, Class<T> type) {
-        return taskQueuingService.callTask(task, type);
+        return taskQueuingService.callTask(task, type, null);
     }
 
     public <T> CompletableFuture<T> call(Task.Builder task, TypeReference<T> typeRef) {
-        return taskQueuingService.callTask(task, typeRef);
+        return taskQueuingService.callTask(task, null, typeRef);
     }
 
-    public <T, V> CompletableFuture<Map<T, V>> callTaskForEach(Set<T> input,
+    public <T, V> CompletableFuture<Map<T, V>> callTaskForEach(Collection<T> input,
+            Function<T, Task.Builder> tasker, Class<V> type) {
+        return taskQueuingService.callTaskForEach(input, tasker, type, null);
+    }
+
+    public <T, V> CompletableFuture<Map<T, V>> callTaskForEach(Collection<T> input,
             Function<T, Task.Builder> tasker, TypeReference<V> typeRef) {
-        return taskQueuingService.callTaskForEach(input, tasker, typeRef);
+        return taskQueuingService.callTaskForEach(input, tasker, null, typeRef);
     }
 
     public Set<String> verifyRoutes(Collection<String> routes) {
@@ -199,18 +165,6 @@ public class Retask implements AutoCloseable {
         return permitRepository.getPermitBacklogCount(permitKey);
     }
 
-    public SimpleSubscription subscribe(String channel, PubSubMessageHandler handler) {
-        return SimpleSubscription.create(redisClient, channel, handler);
-    }
-
-    protected <T> SimpleSubscription subscribe(String channel, Class<T> type, TypedPubSubMessageHandler<T> handler) {
-        return SimpleSubscription.create(redisClient, objectMapper, channel, type, handler);
-    }
-
-    protected <T> SimpleSubscription subscribe(String channel, TypeReference<T> typeRef, TypedPubSubMessageHandler<T> handler) {
-        return SimpleSubscription.create(redisClient, objectMapper, channel, typeRef, handler);
-    }
-
     public Runnable registerStartHandler(StartHandler startHandler) {
         return lifeCycleCallbackHandler.registerStartHandler(startHandler);
     }
@@ -220,19 +174,19 @@ public class Retask implements AutoCloseable {
     }
 
     public Runnable registerInsertHandler(String table, DmlEventHandler handler) {
-        return recordOpHandler.registerInsertHandler(table, handler);
+        return dmlEventEntryHandler.registerInsertHandler(table, handler);
     }
 
     public Runnable registerUpdateHandler(String table, DmlEventHandler handler) {
-        return recordOpHandler.registerUpdateHandler(table, handler);
+        return dmlEventEntryHandler.registerUpdateHandler(table, handler);
     }
 
     public Runnable registerUpdateHandler(String table, String[] fields, DmlEventHandler handler) {
-        return recordOpHandler.registerUpdateHandler(table, fields, handler);
+        return dmlEventEntryHandler.registerUpdateHandler(table, fields, handler);
     }
 
     public Runnable registerDeleteHandler(String table, DmlEventHandler handler) {
-        return recordOpHandler.registerDeleteHandler(table, handler);
+        return dmlEventEntryHandler.registerDeleteHandler(table, handler);
     }
 
     public void registerShutdownLatches(CountDownLatch... latches) {
@@ -262,7 +216,6 @@ public class Retask implements AutoCloseable {
             queuePopper.awaitDrainComplete();
             logger.info("Queue Popper has drained");
 
-            primaryRc.close();
             for (RedisConnection connection : connections) {
                 connection.close();
             }

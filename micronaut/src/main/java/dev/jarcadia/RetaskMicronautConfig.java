@@ -1,9 +1,11 @@
 package dev.jarcadia;
 
 import dev.jarcadia.annontation.OnTask;
+import dev.jarcadia.iface.CustomParamProvider;
 import io.micronaut.context.BeanContext;
 
 import java.lang.annotation.Annotation;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -12,6 +14,7 @@ public class RetaskMicronautConfig {
     private final Retask retask;
     private final BeanContext beanContext;
     private final List<RegisteredTaskHandlerAnnotation<?>> taskHandlerAnnotations;
+    private final List<RegisteredCustomParamProvider<?>> customParamProviders;
 
     protected RetaskMicronautConfig(Retask retask, BeanContext beanContext) {
         this.retask = retask;
@@ -19,14 +22,22 @@ public class RetaskMicronautConfig {
         this.taskHandlerAnnotations = new LinkedList<>();
         this.taskHandlerAnnotations.add(new RegisteredTaskHandlerAnnotation<>(OnTask.class,
                 (bd, method, annotation) -> annotation.stringValue("route").get()));
+        this.customParamProviders = new ArrayList<>();
     }
 
-    public <T extends Annotation> RetaskMicronautConfig registerTaskHandlerAnnotation(Class<T> type, RouteProducer<T> routeProducer) {
+    public <T extends Annotation> RetaskMicronautConfig registerTaskHandlerAnnotation(Class<T> type,
+            RouteProducer<T> routeProducer) {
         this.taskHandlerAnnotations.add(new RegisteredTaskHandlerAnnotation(type, routeProducer));
         return this;
     }
 
-    public RetaskRegistations apply() {
+    public <T extends Annotation> RetaskMicronautConfig registerCustomParamProvider(Class<T> type,
+            CustomParamProvider cpp) {
+        this.customParamProviders.add(new RegisteredCustomParamProvider<T>(type, cpp));
+        return this;
+    }
+
+    public RetaskMicronautRegistations apply() {
         return RetaskMicronaut.initialize(this);
     }
 
@@ -40,5 +51,9 @@ public class RetaskMicronautConfig {
 
     protected List<RegisteredTaskHandlerAnnotation<?>> getRegisteredTaskHandlerAnnotations() {
         return taskHandlerAnnotations;
+    }
+
+    protected List<RegisteredCustomParamProvider<?>> getRegisteredCustomParamProviders() {
+        return customParamProviders;
     }
 }

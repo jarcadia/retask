@@ -102,7 +102,7 @@ public class DmlEventEntryHandler {
                     executorService.execute(() -> {
                         try {
                             Object returnValue = handler.apply(table, fields);
-                            returnValueHandler.handle(returnValue);
+                            returnValueHandler.handle(table, fields, returnValue);
                         } catch (Throwable t) {
                             logger.warn("Exception occurred while processing callback for {}", table, t);
                         } finally {

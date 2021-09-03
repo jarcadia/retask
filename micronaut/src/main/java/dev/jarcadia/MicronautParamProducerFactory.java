@@ -2,14 +2,12 @@ package dev.jarcadia;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.jarcadia.annontation.OnTask;
-import dev.jarcadia.annontation.OnUpdate;
-import io.micronaut.core.annotation.AnnotationValue;
+import dev.jarcadia.iface.CustomParamProvider;
 import io.micronaut.core.type.Argument;
 import io.micronaut.inject.ExecutableMethod;
 
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.util.ArrayList;
+import java.util.List;
 
 class MicronautParamProducerFactory {
 
@@ -19,62 +17,52 @@ class MicronautParamProducerFactory {
         this.objectMapper = objectMapper;
     }
 
-    protected MicronautTaskHandlerParamProducer forTask(ExecutableMethod method) {
+    protected MicronautTaskHandlerParamProducer forTask(ExecutableMethod method, List<CustomParamProvider> cpps) {
+        return create(method, StaticParamType.TASK, cpps);
+    }
+
+    protected MicronautTaskHandlerParamProducer forDmlHandler(ExecutableMethod method, List<CustomParamProvider> cpps) {
+        return create(method, StaticParamType.DML_EVENT, cpps);
+    }
+
+    private MicronautTaskHandlerParamProducer create(ExecutableMethod method, StaticParamType staticParamType,
+            List<CustomParamProvider> cpps) {
 
         try {
             Argument[] args = method.getArguments();
-            int taskIdIndex = findStaticParam(args, "taskId", int.class);
-            int routeIndex = findStaticParam(args, "route", String.class);
-            int attemptIndex = findStaticParam(args, "attempt", int.class);
-            int permitIndex = findStaticParam(args, "permit", int.class);
+            List<StaticParam> statics = new ArrayList<>();
+            List<DynamicParam> dynamics = new ArrayList<>();
 
-            FieldParam[] fieldParams = IntStream.range(0, args.length)
-                    .filter(i -> i != taskIdIndex && i != routeIndex && i != attemptIndex && i != permitIndex)
-                    .mapToObj(i -> setupDynamicParam(i, args[i]))
-                    .collect(Collectors.toList())
-                    .toArray(new FieldParam[0]);
-            return new MicronautTaskHandlerParamProducer(args.length, taskIdIndex, routeIndex,
-                    attemptIndex, permitIndex, fieldParams);
-        } catch (Throwable t) {
-            throw new ParamException(String.format("Unable to create TaskHandlerParamProducer for %s.%s",
-                    method.getDeclaringType().getSimpleName(), method.getName()), t);
-        }
-    }
+            for (int i=0; i<args.length; i++) {
+                Argument arg = args[i];
 
-    protected MicronautDmlEventHandlerParamProducer forDmlHandler(ExecutableMethod method) {
-        try {
-            Argument[] args = method.getArguments();
-            int tableIndex = findStaticParam(args, "table", String.class);
-
-            FieldParam[] fieldParams = IntStream.range(0, args.length)
-                    .filter(i -> i != tableIndex)
-                    .mapToObj(i -> setupDynamicParam(i, args[i]))
-                    .collect(Collectors.toList())
-                    .toArray(new FieldParam[0]);
-            return new MicronautDmlEventHandlerParamProducer(args.length, tableIndex, fieldParams);
-        } catch (Throwable t) {
-            throw new ParamException(String.format("Unable to create TaskHandlerParamProducer for %s.%s",
-                    method.getDeclaringType().getSimpleName(), method.getName()), t);
-        }
-    }
-
-    protected int findStaticParam(Argument[] args, String name, Class<?> clazz) {
-        for (int i=0; i<args.length; i++) {
-            Argument arg = args[i];
-            if (name.equals(arg.getName())) {
-                if (!arg.getType().equals(clazz)) {
-                    throw new ParamException(String.format("Expected param %s to be of type % but is %",
-                            name, clazz.getSimpleName(), arg.getType().getSimpleName()));
+                // Check for statics
+                for (int j=0; j<staticParamType.getDefs().length; j++) {
+                    StaticParamType.Def spd = staticParamType.getDefs()[j];
+                    if (spd.name().equals(arg.getName())) {
+                        if (arg.getType().equals(spd.type())) {
+                            statics.add(new StaticParam(j, i, spd.name(), spd.type()));
+                            continue;
+                        } else {
+                            throw new ParamException(String.format("Expected static param %s to be of type % but is %",
+                                    spd.name(), spd.type().getSimpleName(), arg.getType().getSimpleName()));
+                        }
+                    }
                 }
-                return i;
+
+                // If not static, add as a dynamic field
+                String name = arg.getName(); // TODO handle @Named
+                JavaType javaType = objectMapper.constructType(new MicronautParameterizedType(arg.asParameterizedType()));
+                dynamics.add(new DynamicParam(i, name, arg.getType(), javaType));
             }
+
+            return new MicronautTaskHandlerParamProducer(args.length, staticParamType, statics.toArray(new StaticParam[0]),
+                    dynamics.toArray(new DynamicParam[0]), cpps == null ? null : cpps.toArray(new CustomParamProvider[0]));
+        } catch (Throwable t) {
+            throw new ParamException(String.format("Unable to create TaskHandlerParamProducer for %s.%s",
+                    method.getDeclaringType().getSimpleName(), method.getName()), t);
         }
-        return -1;
     }
 
-    protected FieldParam setupDynamicParam(int index, Argument arg) {
-        String name = arg.getName(); // TODO handle @Named
-        JavaType javaType = objectMapper.constructType(new MicronautParameterizedType(arg.asParameterizedType()));
-        return new FieldParam(index, name, javaType);
-    }
+
 }

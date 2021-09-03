@@ -81,12 +81,8 @@ public class TaskQueuingService {
         return responseFuture;
     }
 
-    public <T> CompletableFuture<T> callTask(Task.Builder task, Class<T> type) {
-        return parseResponse(callTask(task), type, null);
-    }
-
-    public <T> CompletableFuture<T> callTask(Task.Builder task, TypeReference<T> typeRef) {
-        return parseResponse(callTask(task), null, typeRef);
+    protected <T> CompletableFuture<T> callTask(Task.Builder task, Class<T> type, TypeReference<T> typeRef) {
+        return parseResponse(callTask(task), type, typeRef);
     }
 
     private <T> CompletableFuture<T> parseResponse(CompletableFuture<String> future, Class<T> type,
@@ -101,12 +97,13 @@ public class TaskQueuingService {
         });
     }
 
-    public <T, V> CompletableFuture<Map<T, V>> callTaskForEach(Collection<T> input, Function<T, Task.Builder> tasker, TypeReference<V> typeRef) {
+    protected <T, V> CompletableFuture<Map<T, V>> callTaskForEach(Collection<T> input, Function<T, Task.Builder> task,
+            Class<V> type, TypeReference<V> typeRef) {
         final CompletableFuture<V>[] futures = new CompletableFuture[input.size()];
 
         List<T> orderedInput = new ArrayList<>(input);
         for (int i=0; i< futures.length; i++) {
-            futures[i] = this.callTask(tasker.apply(orderedInput.get(i)), typeRef);
+            futures[i] = this.callTask(task.apply(orderedInput.get(i)), type, typeRef);
         }
 
         return CompletableFuture.allOf(futures)
