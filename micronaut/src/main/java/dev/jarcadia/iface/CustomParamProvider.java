@@ -7,6 +7,5 @@ import java.util.Map;
 
 @FunctionalInterface
 public interface CustomParamProvider {
-
     void apply(Map<String, Object> statics, Fields fields, SettableParam[] settables);
 }

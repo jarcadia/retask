@@ -25,13 +25,13 @@ public class DmlEventEntryHandler {
     private final Map<String, Set<DmlEventHandler>> updateHandlerMap;
     private final Map<String, Map<String, Set<DmlEventHandler>>> fieldUpdateHandlerMap;
     private final Map<String, Set<DmlEventHandler>> deleteHandlerMap;
-    private ReturnValueHandler returnValueHandler;
+    private ReturnValueService returnValueService;
 
     protected DmlEventEntryHandler(ExecutorService executorService, ObjectMapper objectMapper,
-            ReturnValueHandler returnValueHandler) {
+            ReturnValueService returnValueService) {
         this.executorService = executorService;
         this.objectMapper = objectMapper;
-        this.returnValueHandler = returnValueHandler;
+        this.returnValueService = returnValueService;
         this.updateHandlerMap = new ConcurrentHashMap<>();
         this.insertHandlerMap = new ConcurrentHashMap<>();
         this.fieldUpdateHandlerMap = new ConcurrentHashMap<>();
@@ -102,7 +102,7 @@ public class DmlEventEntryHandler {
                     executorService.execute(() -> {
                         try {
                             Object returnValue = handler.apply(table, fields);
-                            returnValueHandler.handle(table, fields, returnValue);
+                            returnValueService.handle(returnValue);
                         } catch (Throwable t) {
                             logger.warn("Exception occurred while processing callback for {}", table, t);
                         } finally {

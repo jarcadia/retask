@@ -13,13 +13,13 @@ public class LifeCycleCallbackHandler {
     private static final Logger logger = LoggerFactory.getLogger(LifeCycleCallbackHandler.class);
 
     private final ExecutorService executorService;
-    private final ReturnValueHandler returnValueHandler;
+    private final ReturnValueService returnValueService;
     private final Set<StartHandler> startHandlers;
 
     public LifeCycleCallbackHandler(ExecutorService executorService,
-            ReturnValueHandler returnValueHandler) {
+            ReturnValueService returnValueService) {
         this.executorService = executorService;
-        this.returnValueHandler = returnValueHandler;
+        this.returnValueService = returnValueService;
         this.startHandlers = new HashSet<>();
     }
 
@@ -37,7 +37,7 @@ public class LifeCycleCallbackHandler {
             executorService.execute(() -> {
                 try {
                     Object returnValue = startHandler.run();
-                    returnValueHandler.handle(returnValue);
+                    returnValueService.handle(returnValue);
                 } catch (Throwable t) {
                     logger.warn("Exception occurred while running start callback", t);
                 }

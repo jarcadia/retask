@@ -1,4 +1,4 @@
-package dev.jarcadia;
+package dev.jarcadia.iface;
 
 import io.micronaut.core.annotation.AnnotationValue;
 import io.micronaut.inject.BeanDefinition;
@@ -8,7 +8,5 @@ import java.lang.annotation.Annotation;
 
 @FunctionalInterface
 public interface RouteProducer<T extends Annotation> {
-
     String getRoute(BeanDefinition<?> beanDef, ExecutableMethod<?,?> method, AnnotationValue<T> annotation);
-
 }

@@ -28,7 +28,7 @@ public class RetaskMicronaut {
 
     protected static RetaskMicronautRegistations initialize(RetaskMicronautConfig config) {
 
-        Retask retask = config.getJarcadia();
+        Retask retask = config.getRetask();
         BeanContext context = config.getBeanContext();
 
         MicronautParamProducerFactory micronautParamProducerFactory =
@@ -44,7 +44,6 @@ public class RetaskMicronaut {
                         .collect(Collectors.groupingBy(RegisteredCustomParamProvider::type,
                                 Collectors.mapping(RegisteredCustomParamProvider::provider,
                                         Collectors.toList())));
-
 
         for(BeanDefinition definition : definitions) {
 
@@ -64,7 +63,8 @@ public class RetaskMicronaut {
                         MicronautTaskHandlerParamProducer paramProducer = micronautParamProducerFactory
                                 .forTask(method, cppMap.get(handler.annotationType()));
                         retask.registerTaskHandler(handler.route(),
-                                new MicronautTaskHandler<>(context, definition, method, paramProducer));
+                                new MicronautTaskHandler<>(context, definition, method, paramProducer,
+                                        registeredTaskHandlerAnnotation));
                     }
                 }
 

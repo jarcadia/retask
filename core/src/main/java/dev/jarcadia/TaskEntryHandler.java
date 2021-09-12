@@ -26,18 +26,18 @@ public class TaskEntryHandler {
     private ObjectMapper objectMapper;
     private final TypeReference<Map<String, String>> mapTypeReference;
     private final RedisConnection primaryRc;
-    private final ReturnValueHandler returnValueHandler;
+    private final ReturnValueService returnValueService;
     private final TaskQueuingRepository taskQueuingRepository;
     private final PermitRepository permitRepository;
     private final TaskFinalizingRepository taskFinalizingRepository;
 
     public TaskEntryHandler(ExecutorService executorService, ObjectMapper objectMapper, RedisConnection primaryRc,
-            ReturnValueHandler returnValueHandler, TaskQueuingRepository taskQueuingRepository,
+            ReturnValueService returnValueService, TaskQueuingRepository taskQueuingRepository,
             PermitRepository permitRepository, TaskFinalizingRepository taskFinalizingRepository) {
         this.executorService = executorService;
         this.objectMapper = objectMapper;
         this.primaryRc = primaryRc;
-        this.returnValueHandler = returnValueHandler;
+        this.returnValueService = returnValueService;
         this.taskQueuingRepository = taskQueuingRepository;
         this.permitRepository = permitRepository;
         this.taskFinalizingRepository = taskFinalizingRepository;
@@ -86,7 +86,7 @@ public class TaskEntryHandler {
                     if (responseChannel != null) {
                         taskFinalizingRepository.publishResponse(responseChannel, returnValue);
                     } else {
-                        returnValueHandler.handle(taskId, route, attempt, permit, fields, returnValue);
+                        returnValueService.handle(returnValue);
                     }
                 }
             } catch (Throwable t) {

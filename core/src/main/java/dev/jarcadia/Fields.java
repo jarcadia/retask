@@ -15,11 +15,11 @@ public class Fields {
     private final byte[] source;
     private final Map<String, FieldLocation> fields;
 
-    public static Fields empty() {
+    protected static Fields empty() {
         return new Fields(null, null, Map.of());
     }
 
-    public Fields(ObjectMapper objectMapper, byte[] source, Map<String, FieldLocation> fields) {
+    protected Fields(ObjectMapper objectMapper, byte[] source, Map<String, FieldLocation> fields) {
         this.objectMapper = objectMapper;
         this.source = source;
         this.fields = fields;

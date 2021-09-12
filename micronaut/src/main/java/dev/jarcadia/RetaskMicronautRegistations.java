@@ -1,7 +1,6 @@
 package dev.jarcadia;
 
 import java.lang.annotation.Annotation;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -9,7 +8,7 @@ public class RetaskMicronautRegistations {
 
     private final List<RegisteredTaskHandler<?>> taskHandlers;
 
-    public RetaskMicronautRegistations(List<RegisteredTaskHandler<?>> taskHandlers) {
+    protected RetaskMicronautRegistations(List<RegisteredTaskHandler<?>> taskHandlers) {
         this.taskHandlers = taskHandlers;
     }
 

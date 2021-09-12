@@ -3,10 +3,9 @@ package dev.jarcadia;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.jarcadia.iface.DmlEventHandler;
-import dev.jarcadia.iface.DmlEventReturnValueHandler;
+import dev.jarcadia.iface.ReturnValueHandler;
 import dev.jarcadia.iface.StartHandler;
 import dev.jarcadia.iface.TaskHandler;
-import dev.jarcadia.iface.TaskReturnValueHandler;
 import dev.jarcadia.redis.RedisConnection;
 import dev.jarcadia.redis.RedisFactory;
 import io.lettuce.core.RedisClient;
@@ -34,7 +33,6 @@ public class Retask implements AutoCloseable {
     private final ObjectMapper objectMapper;
 
     private final RedisFactory redisFactory;
-//    private final RedisConnection primaryRc;
     private final Set<RedisConnection> connections;
 
     private final AtomicBoolean closing;
@@ -45,6 +43,7 @@ public class Retask implements AutoCloseable {
 
     private final PermitRepository permitRepository;
 
+    private final ReturnValueService returnValueService;
     private final DmlEventEntryHandler dmlEventEntryHandler;
     private final TaskEntryHandler taskEntryHandler;
 
@@ -57,8 +56,7 @@ public class Retask implements AutoCloseable {
         return new RetaskConfig();
     }
 
-    Retask(RedisClient redisClient, ObjectMapper objectMapper, TaskReturnValueHandler taskReturnValueHandler,
-            DmlEventReturnValueHandler dmlEventReturnValueHandler, boolean flushDatabase) {
+    Retask(RedisClient redisClient, ObjectMapper objectMapper, boolean flushDatabase) {
 
         this.closing = new AtomicBoolean(false);
         this.connections = Collections.synchronizedSet(new HashSet<>());
@@ -80,12 +78,12 @@ public class Retask implements AutoCloseable {
 //        this.daemon = new PersistDaemon(this, daemonRepository, new Procrastinator());
 
         ExecutorService executor = Executors.newCachedThreadPool();
-        ReturnValueHandler returnValueHandler = new ReturnValueHandler(taskQueuingService, taskReturnValueHandler,
-                dmlEventReturnValueHandler);
-        this.dmlEventEntryHandler = new DmlEventEntryHandler(executor, objectMapper, returnValueHandler);
+        this.returnValueService = new ReturnValueService();
+        this.returnValueService.registerHandler(Task.Builder.class, taskQueuingService::submitTask);
+        this.dmlEventEntryHandler = new DmlEventEntryHandler(executor, objectMapper, returnValueService);
         this.permitRepository = new PermitRepository(primaryRc);
         TaskFinalizingRepository taskFinalizingRepository = new TaskFinalizingRepository(primaryRc, objectMapper);
-        this.taskEntryHandler = new TaskEntryHandler(executor, objectMapper, primaryRc, returnValueHandler,
+        this.taskEntryHandler = new TaskEntryHandler(executor, objectMapper, primaryRc, returnValueService,
                 taskQueuingRepository, permitRepository, taskFinalizingRepository);
 
         QueuePopperRepository popperRepo = new QueuePopperRepository(redisFactory, "TODO");
@@ -98,7 +96,7 @@ public class Retask implements AutoCloseable {
 
         schedulePopper = new SchedulePopper(schedulePopperService, procrastinator);
 
-        this.lifeCycleCallbackHandler = new LifeCycleCallbackHandler(executor, returnValueHandler);
+        this.lifeCycleCallbackHandler = new LifeCycleCallbackHandler(executor, returnValueService);
     }
 
     public void start() {
@@ -187,6 +185,10 @@ public class Retask implements AutoCloseable {
 
     public Runnable registerDeleteHandler(String table, DmlEventHandler handler) {
         return dmlEventEntryHandler.registerDeleteHandler(table, handler);
+    }
+
+    public <T> void registerReturnValueHandler(Class<T> type, ReturnValueHandler<T> returnValueHandler) {
+        returnValueService.registerHandler(type, returnValueHandler);
     }
 
     public void registerShutdownLatches(CountDownLatch... latches) {

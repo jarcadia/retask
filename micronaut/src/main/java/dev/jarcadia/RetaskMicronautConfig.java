@@ -2,6 +2,7 @@ package dev.jarcadia;
 
 import dev.jarcadia.annontation.OnTask;
 import dev.jarcadia.iface.CustomParamProvider;
+import dev.jarcadia.iface.RouteProducer;
 import io.micronaut.context.BeanContext;
 
 import java.lang.annotation.Annotation;
@@ -33,7 +34,7 @@ public class RetaskMicronautConfig {
 
     public <T extends Annotation> RetaskMicronautConfig registerCustomParamProvider(Class<T> type,
             CustomParamProvider cpp) {
-        this.customParamProviders.add(new RegisteredCustomParamProvider<T>(type, cpp));
+        this.customParamProviders.add(new RegisteredCustomParamProvider<>(type, cpp));
         return this;
     }
 
@@ -41,7 +42,7 @@ public class RetaskMicronautConfig {
         return RetaskMicronaut.initialize(this);
     }
 
-    protected Retask getJarcadia() {
+    protected Retask getRetask() {
         return retask;
     }
 
